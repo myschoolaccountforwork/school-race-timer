@@ -1,0 +1,269 @@
+.marshal2-page {
+  min-height: 100vh;
+  padding: 20px;
+  background: #f3f6fa;
+}
+
+.marshal2-shell {
+  width: 100%;
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 24px;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+}
+
+.marshal2-header {
+  margin: 24px 0;
+}
+
+.marshal2-header h1 {
+  margin: 4px 0 8px;
+  font-size: clamp(1.9rem, 6vw, 2.5rem);
+}
+
+.marshal2-header p {
+  margin: 0;
+  color: #5f6670;
+}
+
+.marshal2-eyebrow {
+  font-size: 0.85rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.marshal2-message {
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border-left: 4px solid #16823b;
+  border-radius: 8px;
+  background: #e9f7ee;
+  color: #145d2d;
+  font-weight: 700;
+}
+
+.marshal2-queue,
+.marshal2-review,
+.marshal2-empty-queue {
+  margin-top: 18px;
+  padding: 20px;
+  border: 1px solid #dfe5ec;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.marshal2-queue h2,
+.marshal2-review h2,
+.marshal2-empty-queue h2 {
+  margin: 0 0 14px;
+}
+
+.marshal2-queue-list {
+  display: grid;
+  gap: 8px;
+}
+
+.marshal2-queue-row {
+  width: 100%;
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 12px;
+  border: 1px solid #d7dee7;
+  border-radius: 10px;
+  background: #fff;
+  color: #1f2933;
+  text-align: left;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.marshal2-queue-current {
+  border-color: #0d6efd;
+  background: #eef5ff;
+}
+
+.marshal2-status {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.marshal2-status-sent {
+  background: #fff4d6;
+  color: #7a5200;
+}
+
+.marshal2-status-returned {
+  background: #ffe8d5;
+  color: #8a3f00;
+}
+
+.marshal2-status-confirmed {
+  background: #e7f7ec;
+  color: #145d2d;
+}
+
+.marshal2-review-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.marshal2-review-header h2 {
+  margin: 0;
+}
+
+.marshal2-review-header span {
+  color: #5f6670;
+  font-weight: 700;
+}
+
+.marshal2-heats {
+  display: grid;
+  gap: 18px;
+}
+
+.marshal2-heat-card {
+  padding: 18px;
+  border: 1px solid #dfe5ec;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.marshal2-heat-card h3 {
+  margin: 0 0 14px;
+}
+
+.marshal2-lanes {
+  display: grid;
+  gap: 10px;
+}
+
+.marshal2-lane-row {
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.marshal2-lane-row span {
+  font-weight: 800;
+}
+
+.marshal2-lane-row input {
+  width: 100%;
+  min-height: 50px;
+  padding: 12px 14px;
+  border: 1px solid #b9c3cf;
+  border-radius: 10px;
+  background: #fff;
+  color: #1f2933;
+}
+
+.marshal2-lane-row input:disabled {
+  background: #f1f3f5;
+  color: #5f6670;
+}
+
+.marshal2-lane-row input:focus {
+  outline: 3px solid #b8d4ff;
+  border-color: #0d6efd;
+}
+
+.marshal2-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.marshal2-primary-button,
+.marshal2-secondary-button,
+.marshal2-primary-link {
+  min-height: 54px;
+  display: grid;
+  place-items: center;
+  padding: 14px 18px;
+  border-radius: 10px;
+  font-weight: 800;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.marshal2-primary-button,
+.marshal2-primary-link {
+  border: 0;
+  background: #0d6efd;
+  color: #fff;
+}
+
+.marshal2-secondary-button {
+  border: 1px solid #b9c3cf;
+  background: #fff;
+  color: #1f2933;
+}
+
+.marshal2-confirmed-note {
+  margin-top: 20px;
+  padding: 14px 16px;
+  border-left: 4px solid #16823b;
+  border-radius: 8px;
+  background: #e9f7ee;
+  color: #145d2d;
+  font-weight: 700;
+}
+
+.marshal2-empty {
+  margin-top: 24px;
+  text-align: center;
+}
+
+.marshal2-empty-queue {
+  text-align: center;
+}
+
+.marshal2-empty-queue p {
+  margin-bottom: 0;
+  color: #5f6670;
+}
+
+@media (max-width: 560px) {
+  .marshal2-page {
+    padding: 12px;
+  }
+
+  .marshal2-shell {
+    padding: 20px 14px;
+    border-radius: 12px;
+  }
+
+  .marshal2-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .marshal2-lane-row {
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 8px;
+  }
+}
+
+@media (min-width: 620px) {
+  .marshal2-page {
+    padding: 32px;
+  }
+
+  .marshal2-shell {
+    padding: 32px 36px;
+  }
+}
