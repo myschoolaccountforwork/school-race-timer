@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { AppRoute } from "../../types/routes";
+import LiveSessionStatus from "../../components/LiveSessionStatus";
 import type { Gender, TrackEventDraft } from "../../types/events";
 import "./Marshal2Screen.css";
 
@@ -13,6 +14,7 @@ interface EventGroup {
 interface HeatEntry {
   id: string;
   names: string[];
+  ready?: boolean;
 }
 
 type GroupStatus =
@@ -38,6 +40,14 @@ interface MarshalEntryState {
 const EVENT_STORAGE_KEY = "raceflow.trackEventDraft";
 const ENTRY_STORAGE_KEY = "raceflow.marshal1Entry";
 const QUEUE_STORAGE_KEY = "raceflow.marshal2Queue";
+const CHIEF_TIMEKEEPER_QUEUE_KEY = "raceflow.chiefTimekeeperQueue";
+
+interface ChiefTimekeeperQueueEntry {
+  group: EventGroup;
+  heat: HeatEntry;
+  heatNumber: number;
+  pushedAt: string;
+}
 
 function loadEvent(): TrackEventDraft | null {
   const raw = localStorage.getItem(EVENT_STORAGE_KEY);
@@ -61,6 +71,18 @@ function loadMarshalState(): MarshalEntryState | null {
   }
 }
 
+function loadChiefTimekeeperQueue(): ChiefTimekeeperQueueEntry[] {
+  const raw = localStorage.getItem(CHIEF_TIMEKEEPER_QUEUE_KEY);
+  if (!raw) return [];
+
+  try {
+    const queue = JSON.parse(raw) as unknown;
+    return Array.isArray(queue) ? (queue as ChiefTimekeeperQueueEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 function getAgeLabel(age: string) {
   return age === "open" ? "Open" : `${age} Years`;
 }
@@ -78,8 +100,8 @@ function titleCaseName(value: string) {
 }
 
 export default function Marshal2Screen() {
-  const event = useMemo(loadEvent, []);
-  const initialMarshalState = useMemo(loadMarshalState, []);
+  const event = useMemo(() => loadEvent(), []);
+  const initialMarshalState = useMemo(() => loadMarshalState(), []);
 
   const [marshalState, setMarshalState] =
     useState<MarshalEntryState | null>(initialMarshalState);
@@ -96,13 +118,39 @@ export default function Marshal2Screen() {
       return first?.group.id ?? null;
     });
 
+  const [selectedHeatId, setSelectedHeatId] = useState<string | null>(() => {
+    const firstGroup = initialMarshalState?.groups.find(
+      (group) =>
+        group.status === "sent" ||
+        group.status === "returned" ||
+        group.status === "confirmed",
+    );
+
+    return (
+      firstGroup?.heats.find((heat) => !heat.ready)?.id ??
+      firstGroup?.heats[0]?.id ??
+      null
+    );
+  });
+
   const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    function handleStorage(event: StorageEvent) {
+      if (event.key === ENTRY_STORAGE_KEY) {
+        setMarshalState(loadMarshalState());
+      }
+    }
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
 
   if (!event || !marshalState) {
     return (
       <main className="marshal2-page">
         <section className="marshal2-shell marshal2-empty">
-          <h1>Marshal 2</h1>
+          <LiveSessionStatus />
+          <h1>Line Marshal</h1>
           <p>No event data is available.</p>
 
           <Link
@@ -116,7 +164,8 @@ export default function Marshal2Screen() {
     );
   }
 
-  const queue = marshalState.groups.filter(
+  const activeMarshalState = marshalState;
+  const queue = activeMarshalState.groups.filter(
     (group) =>
       group.status === "sent" ||
       group.status === "returned" ||
@@ -132,7 +181,7 @@ export default function Marshal2Screen() {
 
   function saveState(groups: GroupEntry[]) {
     const updatedState = {
-      ...marshalState,
+      ...activeMarshalState,
       groups,
     };
 
@@ -161,10 +210,10 @@ export default function Marshal2Screen() {
     laneIndex: number,
     value: string,
   ) {
-    const groups = marshalState.groups.map((group) => {
+    const groups = activeMarshalState.groups.map((group) => {
       if (
         group.group.id !== groupId ||
-        group.status === "confirmed"
+        group.heats[heatIndex]?.ready
       ) {
         return group;
       }
@@ -190,60 +239,85 @@ export default function Marshal2Screen() {
     saveState(groups);
   }
 
-  function returnToMarshal1() {
+  function pushHeatToChiefTimekeeper(heatId: string) {
     if (!selectedGroup) return;
 
-    const groups = marshalState.groups.map((group) =>
-      group.group.id === selectedGroup.group.id
-        ? {
-            ...group,
-            status: "returned" as const,
-          }
-        : group,
+    const selectedHeat = selectedGroup.heats.find(
+      (heat) => heat.id === heatId,
     );
+    if (!selectedHeat || selectedHeat.ready) return;
 
-    saveState(groups);
-    setMessage("Returned to Marshal 1 for correction.");
-  }
-
-  function confirmGroup() {
-    if (!selectedGroup) return;
-
-    const hasAthletes = selectedGroup.heats.some((heat) =>
-      heat.names.some((name) => name.trim() !== ""),
+    const hasAthletes = selectedHeat.names.some(
+      (name) => name.trim() !== "",
     );
 
     if (!hasAthletes) {
-      setMessage(
-        "Add or confirm at least one athlete before confirming.",
-      );
+      setMessage("Add or confirm at least one athlete before pushing this heat.");
       return;
     }
 
-    const groups = marshalState.groups.map((group) =>
-      group.group.id === selectedGroup.group.id
-        ? {
-            ...group,
-            status: "confirmed" as const,
-          }
-        : group,
+    const heatNumber =
+      selectedGroup.heats.findIndex((heat) => heat.id === selectedHeat.id) + 1;
+    const updatedHeats = selectedGroup.heats.map((heat) =>
+      heat.id === selectedHeat.id ? { ...heat, ready: true } : heat,
     );
+    const groups = activeMarshalState.groups.map((group) => {
+      if (group.group.id !== selectedGroup.group.id) return group;
+
+      return {
+        ...group,
+        heats: updatedHeats,
+        status: updatedHeats.every((heat) => heat.ready)
+          ? ("confirmed" as const)
+          : group.status,
+      };
+    });
 
     saveState(groups);
-    setMessage("Group confirmed and locked for Marshal 1.");
+    const chiefQueue = loadChiefTimekeeperQueue();
+    if (
+      !chiefQueue.some(
+        (entry) =>
+          entry.group.id === selectedGroup.group.id &&
+          entry.heat.id === selectedHeat.id,
+      )
+    ) {
+      localStorage.setItem(
+        CHIEF_TIMEKEEPER_QUEUE_KEY,
+        JSON.stringify([
+          ...chiefQueue,
+          {
+            group: selectedGroup.group,
+            heat: { ...selectedHeat, ready: true },
+            heatNumber,
+            pushedAt: new Date().toISOString(),
+          },
+        ]),
+      );
+    }
+    setMessage(`Heat ${heatNumber} pushed to Chief Timekeeper and locked.`);
+
+    const nextHeat = updatedHeats.find((heat) => !heat.ready);
+    if (nextHeat) {
+      setSelectedHeatId(nextHeat.id);
+      return;
+    }
 
     const next = groups.find(
       (group) =>
-        group.status === "sent" ||
-        group.status === "returned",
+        (group.status === "sent" || group.status === "returned") &&
+        group.heats.some((heat) => !heat.ready),
     );
-
-    setSelectedGroupId(next?.group.id ?? null);
+    setSelectedGroupId(next?.group.id ?? selectedGroup.group.id);
+    setSelectedHeatId(
+      next?.heats.find((heat) => !heat.ready)?.id ?? selectedHeat.id,
+    );
   }
 
   return (
     <main className="marshal2-page">
       <section className="marshal2-shell">
+        <LiveSessionStatus />
         <div className="marshal2-top-row">
           <Link className="back-link" to={AppRoute.TRACK_CONTROL}>
             ← Event Control
@@ -251,7 +325,7 @@ export default function Marshal2Screen() {
         </div>
 
         <header className="marshal2-header">
-          <p className="marshal2-eyebrow">Marshal 2</p>
+          <p className="marshal2-eyebrow">Line Marshal</p>
           <h1>{eventName}</h1>
           <p>Confirm athletes before timing.</p>
         </header>
@@ -264,8 +338,8 @@ export default function Marshal2Screen() {
 
         {queue.length === 0 ? (
           <section className="marshal2-empty-queue">
-            <h2>Waiting for Marshal 1</h2>
-            <p>No groups have been pushed to Marshal 2 yet.</p>
+            <h2>Waiting for Chief Marshal</h2>
+            <p>No groups have been pushed to Line Marshal yet.</p>
           </section>
         ) : (
           <>
@@ -284,6 +358,11 @@ export default function Marshal2Screen() {
                     }`}
                     onClick={() => {
                       setSelectedGroupId(group.group.id);
+                      setSelectedHeatId(
+                        group.heats.find((heat) => !heat.ready)?.id ??
+                          group.heats[0]?.id ??
+                          null,
+                      );
                       setMessage("");
                     }}
                   >
@@ -295,11 +374,8 @@ export default function Marshal2Screen() {
                     <span
                       className={`marshal2-status marshal2-status-${group.status}`}
                     >
-                      {group.status === "confirmed"
-                        ? "Confirmed"
-                        : group.status === "returned"
-                          ? "Returned"
-                          : "Waiting"}
+                      {group.heats.filter((heat) => heat.ready).length} of{" "}
+                      {group.heats.length} Heats Ready
                     </span>
                   </button>
                 ))}
@@ -322,7 +398,15 @@ export default function Marshal2Screen() {
 
                 <div className="marshal2-heats">
                   {selectedGroup.heats.map((heat, heatIndex) => (
-                    <section className="marshal2-heat-card" key={heat.id}>
+                    <section
+                      className={`marshal2-heat-card ${
+                        selectedHeatId === heat.id ? "marshal2-heat-current" : ""
+                      } ${heat.ready ? "marshal2-heat-ready" : ""}`}
+                      key={heat.id}
+                      onClick={() => {
+                        if (!heat.ready) setSelectedHeatId(heat.id);
+                      }}
+                    >
                       <h3>Heat {heatIndex + 1}</h3>
 
                       <div className="marshal2-lanes">
@@ -341,7 +425,7 @@ export default function Marshal2Screen() {
                               autoCorrect="off"
                               autoCapitalize="words"
                               spellCheck={false}
-                              disabled={selectedGroup.status === "confirmed"}
+                              disabled={Boolean(heat.ready)}
                               onChange={(event) =>
                                 updateName(
                                   selectedGroup.group.id,
@@ -366,33 +450,28 @@ export default function Marshal2Screen() {
                           </label>
                         ))}
                       </div>
+                      {heat.ready && (
+                        <div className="marshal2-confirmed-note">
+                          Pushed to Chief Timekeeper and locked.
+                        </div>
+                      )}
+                      {!heat.ready && (
+                        <button
+                          className="marshal2-heat-push-button"
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setSelectedHeatId(heat.id);
+                            pushHeatToChiefTimekeeper(heat.id);
+                          }}
+                        >
+                          Push to Chief Timekeeper
+                        </button>
+                      )}
                     </section>
                   ))}
                 </div>
 
-                {selectedGroup.status === "confirmed" ? (
-                  <div className="marshal2-confirmed-note">
-                    This group is confirmed and locked.
-                  </div>
-                ) : (
-                  <div className="marshal2-actions">
-                    <button
-                      className="marshal2-secondary-button"
-                      type="button"
-                      onClick={returnToMarshal1}
-                    >
-                      Return To Marshal 1
-                    </button>
-
-                    <button
-                      className="marshal2-primary-button"
-                      type="button"
-                      onClick={confirmGroup}
-                    >
-                      Confirm Group
-                    </button>
-                  </div>
-                )}
               </section>
             )}
           </>

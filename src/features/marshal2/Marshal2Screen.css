@@ -140,6 +140,15 @@
   background: #f8fafc;
 }
 
+.marshal2-heat-current {
+  border-color: #0d6efd;
+  box-shadow: 0 0 0 2px #d7e7ff;
+}
+
+.marshal2-heat-ready {
+  background: #f1f3f5;
+}
+
 .marshal2-heat-card h3 {
   margin: 0 0 14px;
 }
@@ -186,6 +195,23 @@
   grid-template-columns: 1fr 1fr;
   gap: 12px;
   margin-top: 20px;
+}
+
+.marshal2-return-action {
+  margin-top: 20px;
+}
+
+.marshal2-heat-push-button {
+  width: 100%;
+  min-height: 50px;
+  margin-top: 18px;
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 10px;
+  background: #0d6efd;
+  color: #fff;
+  font-weight: 800;
+  cursor: pointer;
 }
 
 .marshal2-primary-button,

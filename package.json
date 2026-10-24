@@ -4,7 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "test": "node --test src/features/timing/timerOnly.test.mjs server/timerRelay.test.mjs",
+    "test:preview": "node --test server/timerPreview.test.mjs",
+    "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"

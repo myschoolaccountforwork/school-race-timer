@@ -1,12 +1,15 @@
-export enum AppRoute {
-  HOME = "/",
-  TRACK = "/track",
-  TRACK_CREATED = "/track/created",
-  TRACK_CONTROL = "/track/control",
-  TRACK_ENTRY = "/track/entry",
-  MARSHAL_2 = "/marshal2",
-  SWIM = "/swim",
-  TIMING = "/timing",
-  JOIN = "/join",
-  PRACTICE = "/practice",
-}
+export const AppRoute = {
+  HOME: "/",
+  TRACK: "/track",
+  TRACK_CREATED: "/track/created",
+  TRACK_CONTROL: "/track/control",
+  TRACK_ENTRY: "/track/entry",
+  MARSHAL_2: "/marshal2",
+  CHIEF_TIMEKEEPER: "/chief-timekeeper",
+  LANE_TIMEKEEPER: "/lane-timekeeper",
+  STARTER: "/starter",
+  SWIM: "/swim",
+  TIMING: "/timing",
+  JOIN: "/join",
+  PRACTICE: "/practice",
+} as const;

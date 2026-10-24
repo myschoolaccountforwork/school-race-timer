@@ -1,4 +1,5 @@
-import { FormEvent, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import type { FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AppRoute } from "../../types/routes";
 import type {
@@ -25,6 +26,16 @@ const NON_LANED_EVENTS = new Set(["800 metres", "1500 metres"]);
 const EVENT_STORAGE_KEY = "raceflow.trackEventDraft";
 const ENTRY_STORAGE_KEY = "raceflow.marshal1Entry";
 const MARSHAL_2_QUEUE_KEY = "raceflow.marshal2Queue";
+const CHIEF_TIMEKEEPER_QUEUE_KEY = "raceflow.chiefTimekeeperQueue";
+const CHIEF_TIMEKEEPER_CURRENT_RACE_KEY =
+  "raceflow.chiefTimekeeperCurrentRace";
+const RACE_CONTROL_KEY = "raceflow.currentRaceControl";
+const LANE_RESULTS_KEY = "raceflow.laneResults";
+const CHIEF_OVERRIDES_KEY = "raceflow.chiefResultOverrides";
+const EXPORTED_HEATS_KEY = "raceflow.chiefTimekeeperExportedHeats";
+const COMPLETED_HEATS_KEY = "raceflow.chiefTimekeeperCompletedHeats";
+const STARTER_STATUS_KEY = "raceflow.starterStatuses";
+const CHIEF_RACE_CONFIRMATIONS_KEY = "raceflow.chiefRaceConfirmations";
 
 function getAgeOptions() {
   const currentYear = new Date().getFullYear();
@@ -43,7 +54,7 @@ function getAgeOptions() {
 
 export default function TrackEventScreen() {
   const navigate = useNavigate();
-  const ageOptions = useMemo(getAgeOptions, []);
+  const ageOptions = useMemo(() => getAgeOptions(), []);
 
   const [eventName, setEventName] = useState("");
   const [customEventName, setCustomEventName] = useState("");
@@ -52,6 +63,8 @@ export default function TrackEventScreen() {
   const [genders, setGenders] = useState<Gender[]>([]);
   const [genderOrder, setGenderOrder] = useState<GenderOrder | null>(null);
   const [ageOrder, setAgeOrder] = useState<AgeOrder | null>(null);
+  const [useStarterConfirmation, setUseStarterConfirmation] =
+    useState(false);
 
   const isNonLaned = NON_LANED_EVENTS.has(eventName);
   const needsCustomName = eventName === "Alternative Event";
@@ -129,6 +142,7 @@ export default function TrackEventScreen() {
 
     const resolvedAgeOrder: AgeOrder =
       ageGroups.length === 1 ? "youngest-first" : ageOrder!;
+    const sessionId = crypto.randomUUID();
 
     const draft: TrackEventDraft = {
       eventName,
@@ -140,11 +154,23 @@ export default function TrackEventScreen() {
       genders,
       genderOrder: resolvedGenderOrder,
       ageOrder: resolvedAgeOrder,
+      useStarterConfirmation,
+      sessionId,
       createdAt: new Date().toISOString(),
     };
 
     localStorage.removeItem(ENTRY_STORAGE_KEY);
     localStorage.removeItem(MARSHAL_2_QUEUE_KEY);
+    localStorage.removeItem(CHIEF_TIMEKEEPER_QUEUE_KEY);
+    localStorage.removeItem(CHIEF_TIMEKEEPER_CURRENT_RACE_KEY);
+    localStorage.removeItem(RACE_CONTROL_KEY);
+    localStorage.removeItem(LANE_RESULTS_KEY);
+    localStorage.removeItem(CHIEF_OVERRIDES_KEY);
+    localStorage.removeItem(EXPORTED_HEATS_KEY);
+    localStorage.removeItem(COMPLETED_HEATS_KEY);
+    localStorage.removeItem(STARTER_STATUS_KEY);
+    localStorage.removeItem(CHIEF_RACE_CONFIRMATIONS_KEY);
+    localStorage.setItem("raceflow.sessionId", sessionId);
     localStorage.setItem(EVENT_STORAGE_KEY, JSON.stringify(draft));
 
     navigate(AppRoute.TRACK_CONTROL);
@@ -356,6 +382,30 @@ export default function TrackEventScreen() {
             </label>
           </section>
         )}
+
+        <section className="form-section">
+          <h2>Use Starter confirmation</h2>
+
+          <label className="radio-row">
+            <input
+              type="radio"
+              name="starter-confirmation"
+              checked={useStarterConfirmation}
+              onChange={() => setUseStarterConfirmation(true)}
+            />
+            Yes
+          </label>
+
+          <label className="radio-row">
+            <input
+              type="radio"
+              name="starter-confirmation"
+              checked={!useStarterConfirmation}
+              onChange={() => setUseStarterConfirmation(false)}
+            />
+            No
+          </label>
+        </section>
 
         <div className="sticky-action">
           <button

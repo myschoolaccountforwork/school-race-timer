@@ -1,0 +1,46 @@
+﻿.timer-only { min-height: 100vh; padding: 24px; }
+.timer-shell { max-width: 960px; margin: auto; }
+.timer-only header { margin: 24px 0; }
+.timer-only header h1 { margin: 8px 0; font-size: 2.3rem; }
+.timer-only header p { color: #44536a; }
+.timer-panel, .timer-lane { background: white; border: 1px solid #ccd5df; border-radius: 14px; padding: 22px; margin-bottom: 18px; }
+.timer-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.timer-heading h2, .timer-heading h3 { margin: 0 0 12px; }
+.timer-only label { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; font-weight: bold; }
+.timer-only select, .timer-only input { min-height: 48px; border: 1px solid #7c899b; border-radius: 7px; background: white; color: #14243a; padding: 8px; max-width: 100%; }
+.standalone-clock { font-size: clamp(2.7rem, 10vw, 6.5rem); font-variant-numeric: tabular-nums; font-weight: 800; text-align: center; padding: 24px 0; color: #10223b; }
+.timer-controls { display: flex; flex-wrap: wrap; gap: 12px; }
+.timer-only button { min-height: 54px; padding: 12px 18px; border: 1px solid #7c899b; border-radius: 9px; background: white; color: #14243a; font-weight: 800; cursor: pointer; touch-action: manipulation; }
+.timer-only button.primary { background: #0758bd; border-color: #0758bd; color: white; }
+.timer-only button.danger { background: #b52323; border-color: #b52323; color: white; }
+.timer-only button:disabled { background: #e5e9ee; border-color: #cad1da; color: #647183; cursor: not-allowed; }
+.timer-only :focus-visible { outline: 3px solid #d28b00; outline-offset: 3px; }
+.timer-lanes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.timer-lane { display: grid; gap: 14px; margin: 0; }
+.timer-lane output { font-size: 1.8rem; font-weight: bold; font-variant-numeric: tabular-nums; }
+.timer-only .lane-finish { min-height: 76px; font-size: 1.25rem; }
+.timer-lanes + section { margin-top: 18px; }
+.timer-only p { line-height: 1.5; }
+.timer-notice { background: #fff1c7; padding: 16px; border-radius: 9px; }
+.timer-only details { border-top: 1px solid #ccd5df; padding: 16px 0; }
+.timer-only summary { cursor: pointer; padding: 10px 0; font-weight: bold; }
+.timer-only li { padding: 5px 0; }
+.timer-overlay { position: fixed; inset: 0; background: #10223bbb; display: grid; place-items: center; padding: 16px; z-index: 30; }
+.timer-editor { width: min(100%, 480px); max-height: 90vh; overflow: auto; }
+.timer-editor label { display: grid; margin: 16px 0; }
+.relay-connection { border-left: 6px solid #a85b00; }
+.relay-connection.is-connected { border-left-color: #157638; }
+.relay-join-link { margin-top: 18px; }
+.relay-join-link input { width: 100%; font-weight: normal; }
+.relay-qr { text-align: center; padding: 16px 0; }
+.relay-qr svg { max-width: 100%; height: auto; }
+.relay-candidate { display: grid; gap: 8px; padding: 12px; border: 1px solid #ccd5df; border-radius: 8px; }
+.relay-big-finish { width: 100%; margin-bottom: 16px; min-height: 120px !important; font-size: 2rem !important; }
+@media (max-width: 600px) {
+  .timer-only { padding: 12px; }
+  .timer-panel, .timer-lane { padding: 16px; }
+  .timer-lanes { grid-template-columns: 1fr; }
+  .timer-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .timer-controls button { padding: 12px 6px; }
+}
+

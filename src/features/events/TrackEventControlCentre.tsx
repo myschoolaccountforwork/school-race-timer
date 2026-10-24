@@ -8,6 +8,16 @@ import "./TrackEventControlCentre.css";
 const EVENT_STORAGE_KEY = "raceflow.trackEventDraft";
 const ENTRY_STORAGE_KEY = "raceflow.marshal1Entry";
 const MARSHAL_2_QUEUE_KEY = "raceflow.marshal2Queue";
+const CHIEF_TIMEKEEPER_QUEUE_KEY = "raceflow.chiefTimekeeperQueue";
+const CHIEF_TIMEKEEPER_CURRENT_RACE_KEY =
+  "raceflow.chiefTimekeeperCurrentRace";
+const RACE_CONTROL_KEY = "raceflow.currentRaceControl";
+const LANE_RESULTS_KEY = "raceflow.laneResults";
+const CHIEF_OVERRIDES_KEY = "raceflow.chiefResultOverrides";
+const EXPORTED_HEATS_KEY = "raceflow.chiefTimekeeperExportedHeats";
+const COMPLETED_HEATS_KEY = "raceflow.chiefTimekeeperCompletedHeats";
+const STARTER_STATUS_KEY = "raceflow.starterStatuses";
+const CHIEF_RACE_CONFIRMATIONS_KEY = "raceflow.chiefRaceConfirmations";
 
 function loadDraft(): TrackEventDraft | null {
   const raw = localStorage.getItem(EVENT_STORAGE_KEY);
@@ -30,7 +40,7 @@ function getAgeLabel(value: string) {
 export default function TrackEventControlCentre() {
   const navigate = useNavigate();
   const [qrOpen, setQrOpen] = useState(false);
-  const draft = useMemo(loadDraft, []);
+  const draft = useMemo(() => loadDraft(), []);
 
   if (!draft) {
     return (
@@ -58,7 +68,9 @@ export default function TrackEventControlCentre() {
     .join(", ");
 
   const joinUrl =
-    `${window.location.origin}${AppRoute.JOIN}?event=track-demo`;
+    `${window.location.origin}${AppRoute.JOIN}?session=${encodeURIComponent(
+      draft.sessionId ?? localStorage.getItem("raceflow.sessionId") ?? "",
+    )}`;
 
   function cancelEvent() {
     const confirmed = window.confirm(
@@ -70,6 +82,15 @@ export default function TrackEventControlCentre() {
     localStorage.removeItem(EVENT_STORAGE_KEY);
     localStorage.removeItem(ENTRY_STORAGE_KEY);
     localStorage.removeItem(MARSHAL_2_QUEUE_KEY);
+    localStorage.removeItem(CHIEF_TIMEKEEPER_QUEUE_KEY);
+    localStorage.removeItem(CHIEF_TIMEKEEPER_CURRENT_RACE_KEY);
+    localStorage.removeItem(RACE_CONTROL_KEY);
+    localStorage.removeItem(LANE_RESULTS_KEY);
+    localStorage.removeItem(CHIEF_OVERRIDES_KEY);
+    localStorage.removeItem(EXPORTED_HEATS_KEY);
+    localStorage.removeItem(COMPLETED_HEATS_KEY);
+    localStorage.removeItem(STARTER_STATUS_KEY);
+    localStorage.removeItem(CHIEF_RACE_CONFIRMATIONS_KEY);
 
     navigate(AppRoute.HOME);
   }
@@ -154,7 +175,7 @@ export default function TrackEventControlCentre() {
           </div>
 
           <div className="connection-row">
-            <span>Marshal 2</span>
+            <span>Line Marshal</span>
             <span className="status-text">Local test available</span>
           </div>
 
@@ -185,7 +206,7 @@ export default function TrackEventControlCentre() {
             type="button"
             onClick={() => navigate(AppRoute.MARSHAL_2)}
           >
-            Open Marshal 2
+            Open Line Marshal
           </button>
 
           <button
