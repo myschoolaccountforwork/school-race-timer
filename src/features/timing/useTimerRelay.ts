@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { bestClock, clockSample, serverTimeAt } from './relayClock';
 import type { ClockSample } from './relayClock';
 import type { RelayCommand, RelayCredentials, RelaySnapshot } from './relayProtocol';
+import { relayBaseUrl } from './relayUrls';
 import { timerId } from './timerId';
 
 export class TimerApiError extends Error {
@@ -9,12 +10,12 @@ export class TimerApiError extends Error {
   constructor(message: string, code: number) { super(message); this.code = code; }
 }
 export async function timerRequest<T>(path: string, body?: unknown, credentials?: RelayCredentials): Promise<T> {
-  const response = await fetch(`/api/timer/${path}`, {
+  const response = await fetch(`${relayBaseUrl()}/api/timer/${path}`, {
     method: body === undefined ? 'GET' : 'POST', cache: 'no-store', signal: AbortSignal.timeout(3500),
     headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(credentials ? { Authorization: `Bearer ${credentials.token}` } : {}) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
-  const data = await response.json().catch(() => ({ error: 'Timing relay unavailable. Use the local Vite server or single-device mode.' }));
+  const data = await response.json().catch(() => ({ error: 'Timing relay unavailable. Check your internet connection or use Chief-only fallback.' }));
   if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) throw new TimerApiError(data.error ?? 'Timing relay unavailable.', response.status);
   return data as T;
 }

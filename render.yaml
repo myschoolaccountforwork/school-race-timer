@@ -1,0 +1,19 @@
+# Deployment template only. Do not apply without owner approval.
+services:
+  - type: web
+    name: raceflow-timing-relay
+    runtime: node
+    branch: timer-only
+    plan: starter
+    numInstances: 1
+    autoDeployTrigger: off
+    buildCommand: npm ci
+    startCommand: npm run relay
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: 24
+      - key: NODE_ENV
+        value: production
+      - key: TIMER_ALLOWED_ORIGINS
+        sync: false

@@ -8,12 +8,21 @@ import { readStorage } from './timingStorage';
 import { timerId } from './timerId';
 import { localRaceNow } from './localClock';
 import { timerRequest, useTimerRelay } from './useTimerRelay';
+import { timingJoinUrl } from './relayUrls';
 import TimerHistory from './TimerHistory';
 import '../events/TimingOnlyScreen.css';
 
 const CHIEF_KEY = 'timer-only-chief';
 function storedCredentials(key: string): RelayCredentials | null {
-  try { return JSON.parse(sessionStorage.getItem(key) ?? 'null') as RelayCredentials | null; } catch { return null; }
+  try {
+    // Migrate Build 017 tabs without losing the active session on refresh.
+    const saved = localStorage.getItem(key) ?? sessionStorage.getItem(key);
+    const value = JSON.parse(saved ?? 'null') as RelayCredentials | null;
+    if (!value || typeof value.sessionId !== 'string' || typeof value.token !== 'string' || !['chief', 'lane'].includes(value.role)) return null;
+    localStorage.setItem(key, JSON.stringify(value));
+    sessionStorage.removeItem(key);
+    return value;
+  } catch { return null; }
 }
 function localSession(): TimerSession { return readStorage<TimerSession>(TIMER_ONLY_KEY) ?? { current: newRace(), history: [] }; }
 
@@ -56,7 +65,7 @@ export default function RelayTimingScreen({ volunteer = false }: { volunteer?: b
   const submission = state?.submissions.find(s => s.volunteerId === state.selfId && s.raceId === race?.id);
   const disabled = !relay.connected || !relay.chiefConnected || relay.busy || Boolean(relay.pending);
   const locked = race?.state === 'confirmed';
-  const joinUrl = credentials?.joinToken ? `${window.location.origin}/timing/join#id=${encodeURIComponent(credentials.sessionId)}&key=${encodeURIComponent(credentials.joinToken)}` : '';
+  const joinUrl = credentials?.joinToken ? timingJoinUrl(credentials.sessionId, credentials.joinToken) : '';
   const places = race ? positions(race.lanes) : {};
 
   useEffect(() => {
@@ -74,14 +83,14 @@ export default function RelayTimingScreen({ volunteer = false }: { volunteer?: b
     try {
       const local = volunteer ? null : localSession();
       const number = local ? Math.max(local.current.number, ...local.history.map(r => r.number), 0) + (local.history.length || local.current.state !== 'ready' || local.current.lanes.some(l => l.status !== '' || l.milliseconds !== null) ? 1 : 0) : 1;
-      // A stable per-tab token also makes a join retry idempotent if its response is lost.
+      // A stable per-device token also makes a join retry idempotent if its response is lost.
       const identityKey = `${storageKey}-identity`;
-      const identity = sessionStorage.getItem(identityKey) ?? timerId();
-      sessionStorage.setItem(identityKey, identity);
+      const identity = localStorage.getItem(identityKey) ?? timerId();
+      localStorage.setItem(identityKey, identity);
       const next = volunteer
         ? await timerRequest<RelayCredentials>('join', { sessionId, joinToken, lane, token: identity })
         : await timerRequest<RelayCredentials>('create', { laneCount, number });
-      sessionStorage.setItem(storageKey, JSON.stringify(next));
+      localStorage.setItem(storageKey, JSON.stringify(next));
       setCredentials(next);
     } catch (e) { setMessage(e instanceof Error ? e.message : 'Unable to connect.'); }
     finally { setSetupBusy(false); }
@@ -99,7 +108,7 @@ export default function RelayTimingScreen({ volunteer = false }: { volunteer?: b
       if (credentials) {
         await timerRequest('close', { sessionId: credentials.sessionId }, credentials).catch(() => undefined);
       }
-      sessionStorage.removeItem(CHIEF_KEY); navigate('/timing');
+      localStorage.removeItem(CHIEF_KEY); navigate('/timing');
     } catch { setMessage('Unable to save fallback results locally. Export your results or free browser storage before switching.'); }
   }
   async function confirm() {
@@ -127,19 +136,22 @@ export default function RelayTimingScreen({ volunteer = false }: { volunteer?: b
         <div className="timer-controls">{Array.from({ length: availableLanes }, (_, i) => <button disabled={setupBusy} key={i} onClick={() => void createOrJoin(i + 1)}>Join Lane {i + 1}</button>)}</div>
         {sessionId && !availableLanes && <button onClick={() => window.location.reload()}>Retry connection</button>}
       </> : <><h2>Create a shared timing session</h2><label>Number of lanes <select value={laneCount} onChange={e => setLaneCount(Number(e.target.value))}>{Array.from({ length: 10 }, (_, i) => <option key={i}>{i + 1}</option>)}</select></label>
-        <p>Requires this app's running local relay and shared Wi-Fi. A static website alone cannot connect phones.</p>
+        <p>Use the hosted website and internet relay with mobile data or Wi-Fi. Keep this screen awake while timing.</p>
         <button className="primary" disabled={setupBusy} onClick={() => void createOrJoin()}>Create session</button></>}
     </section> : <>
       <aside className={`timer-panel relay-connection ${relay.connected && relay.chiefConnected ? 'is-connected' : ''}`} role="status">
-        <strong>{!relay.connected && !navigator.onLine ? 'Disconnected - device reports offline' : !relay.connected ? 'Disconnected / reconnecting to relay' : !relay.chiefConnected ? 'Chief disconnected - waiting for reconnection' : 'Connected to local relay'}</strong>
+        <strong>{!relay.connected && !navigator.onLine ? 'Disconnected - device reports offline' : !relay.connected ? 'Disconnected / reconnecting to relay' : !relay.chiefConnected ? 'Chief disconnected - waiting for reconnection' : 'Connected to timing relay'}</strong>
         <p>{relay.synchronised ? `Clock sample uncertainty about ±${Math.ceil(relay.uncertainty ?? 0)} ms (network estimate only).` : 'Synchronising clock - Finish is unavailable until a fresh, low-delay sample arrives.'}</p>
         {relay.error && <p>{relay.error}</p>}
-        {relay.pending && <><p>Action awaiting acknowledgement. {relay.pending.milliseconds != null ? `Captured ${formatTime(relay.pending.milliseconds)}.` : ''} Retry sends the same action, never a new finish time.</p><button disabled={relay.busy || !relay.connected} onClick={() => void relay.retry()}>Retry acknowledgement</button></>}
+        {relay.pending && <><p>Unverified action awaiting relay acknowledgement. This is not an official result. {relay.pending.milliseconds != null ? `Captured ${formatTime(relay.pending.milliseconds)}.` : ''} Retry sends the same action, never a new finish time.</p><button disabled={relay.busy || !relay.connected} onClick={() => void relay.retry()}>Retry acknowledgement</button></>}
+        {!volunteer && <button disabled={relay.busy} onClick={() => { if (window.confirm('Forget this session on this phone? Saved confirmed results remain.')) { localStorage.removeItem(storageKey); sessionStorage.removeItem(storageKey); window.location.reload(); } }}>Forget session / create a new one</button>}
       </aside>
       {!volunteer && <section className="timer-panel"><div className="timer-controls"><button disabled={!joinUrl} onClick={() => setShowQr(!showQr)}>{showQr ? 'Hide QR' : 'Show join QR'}</button>
         <button disabled={!joinUrl} onClick={() => { if (navigator.clipboard) void navigator.clipboard.writeText(joinUrl).then(() => setMessage('Join link copied.')).catch(() => setMessage('Select and copy the join link below.')); else setMessage('Select and copy the join link below.'); }}>Copy join link</button>
+        <button disabled={!joinUrl || !navigator.share} onClick={() => void navigator.share({ title: 'RaceFlow lane timing', url: joinUrl }).catch(() => setMessage('Sharing cancelled. You can copy the link.'))}>Share join link</button>
         <button onClick={() => void fallback()}>Use Chief-only fallback</button></div>
         {joinUrl && <label className="relay-join-link">Volunteer join link<input readOnly value={joinUrl} onFocus={e => e.target.select()} /></label>}
+        {!joinUrl && <p className="timer-notice">A public HTTPS website address is required for production QR links. Check frontend configuration.</p>}
         {showQr && <div className="relay-qr"><QRCodeSVG value={joinUrl} size={240} level="M" includeMargin /><p>Scan to select a lane.</p></div>}
         {/localhost|127\.0\.0\.1/.test(window.location.hostname) && <p className="timer-notice">This link uses localhost and cannot be opened on another phone. Open the Chief screen using the server's reachable LAN address first.</p>}
         <h2>Volunteer connections</h2><p>Heartbeat status updates about once a second. A backgrounded or sleeping phone may appear disconnected.</p>

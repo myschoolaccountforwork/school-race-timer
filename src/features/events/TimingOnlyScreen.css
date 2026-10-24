@@ -31,7 +31,8 @@
 .relay-connection { border-left: 6px solid #a85b00; }
 .relay-connection.is-connected { border-left-color: #157638; }
 .relay-join-link { margin-top: 18px; }
-.relay-join-link input { width: 100%; font-weight: normal; }
+.relay-join-link input { width: 100%; min-width: 0; font-weight: normal; }
+.relay-connection p, .relay-candidate span { overflow-wrap: anywhere; }
 .relay-qr { text-align: center; padding: 16px 0; }
 .relay-qr svg { max-width: 100%; height: auto; }
 .relay-candidate { display: grid; gap: 8px; padding: 12px; border: 1px solid #ccd5df; border-radius: 8px; }
@@ -42,5 +43,9 @@
   .timer-lanes { grid-template-columns: 1fr; }
   .timer-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .timer-controls button { padding: 12px 6px; }
+}
+@media (max-width: 360px) {
+  .timer-controls { grid-template-columns: 1fr; }
+  .timer-only header h1 { font-size: 1.8rem; }
 }
 

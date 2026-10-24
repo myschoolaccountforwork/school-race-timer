@@ -131,7 +131,7 @@ test('HTTP relay supports independent clients and exposes no credentials or arbi
     const response = await fetch(`${origin}/api/timer/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) });
     return { code: response.status, body: await response.json() };
   };
-  const created = await post('create', { laneCount: 1, number: 1, student: 'must not be stored' });
+  const created = await post('create', { laneCount: 1, number: 1 });
   assert.equal(created.code, 200);
   const chief = created.body;
   const a = (await post('join', { sessionId: chief.sessionId, joinToken: chief.joinToken, lane: 1, token: randomBytes(24).toString('hex') })).body;

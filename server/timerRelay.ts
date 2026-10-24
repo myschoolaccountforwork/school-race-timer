@@ -9,7 +9,7 @@ interface Participant extends Volunteer { token: string }
 interface Session {
   id: string; chiefToken: string; joinToken: string; revision: number; race: TimerRace;
   volunteers: Participant[]; submissions: Submission[]; history: TimerRace[];
-  chiefLastSeen: number; touched: number; commands: Map<string, string>;
+  chiefLastSeen: number; created: number; touched: number; commands: Map<string, string>;
 }
 export class RelayError extends Error {
   code: number;
@@ -24,15 +24,15 @@ export class TimerRelay {
   clock: () => number;
   constructor(clock = () => performance.now()) { this.clock = clock; }
   prune() {
-    for (const [id, session] of this.sessions) if (this.clock() - session.touched > 4 * 60 * 60 * 1000) this.sessions.delete(id);
+    for (const [id, session] of this.sessions) if ((this.clock() - session.touched > 4 * 60 * 60 * 1000 || this.clock() - session.created > 16 * 60 * 60 * 1000)) this.sessions.delete(id);
   }
   create(laneCount: number, number = 1) {
     this.prune();
     requireThat(Number.isInteger(laneCount) && laneCount >= 1 && laneCount <= 10, 'Choose 1-10 lanes.', 400);
-    requireThat(Number.isInteger(number) && number > 0, 'Invalid race number.', 400);
+    requireThat(Number.isSafeInteger(number) && number > 0 && number <= 1000000, 'Invalid race number.', 400);
     requireThat(this.sessions.size < 100, 'Relay session capacity reached.', 503);
     const session: Session = { id: randomUUID(), chiefToken: randomUUID(), joinToken: randomUUID(), revision: 0,
-      race: newRace(number, laneCount), volunteers: [], submissions: [], history: [], chiefLastSeen: this.clock(), touched: this.clock(), commands: new Map() };
+      race: newRace(number, laneCount), volunteers: [], submissions: [], history: [], chiefLastSeen: this.clock(), created: this.clock(), touched: this.clock(), commands: new Map() };
     this.sessions.set(session.id, session);
     return { sessionId: session.id, token: session.chiefToken, joinToken: session.joinToken, role: 'chief' as const };
   }
@@ -183,18 +183,62 @@ async function readJson(request: IncomingMessage) {
   for await (const chunk of request) { body += String(chunk); requireThat(body.length <= 8192, 'Request too large.', 413); }
   try { return JSON.parse(body) as Record<string, unknown>; } catch { throw new RelayError('Invalid JSON.', 400); }
 }
-export function timerRelayMiddleware(relay = new TimerRelay()) {
+export interface RelayOptions {
+  allowedOrigins?: string[];
+  production?: boolean;
+  rateLimit?: number;
+}
+export function timerRelayMiddleware(relay = new TimerRelay(), options: RelayOptions = {}) {
+  // Never trust client-supplied forwarded IPs. Proxied clients share the IP bucket.
+  const buckets = new Map<string, { count: number; reset: number }>();
+  const take = (key: string, limit: number) => {
+    const now = relay.clock();
+    for (const [id, bucket] of buckets) if (bucket.reset <= now) buckets.delete(id);
+    const bucket = buckets.get(key) ?? { count: 0, reset: now + 60000 };
+    requireThat(buckets.has(key) || buckets.size < 10000, 'Traffic capacity reached.', 503);
+    buckets.set(key, bucket);
+    requireThat(++bucket.count <= limit, 'Too many requests. Wait a minute.', 429);
+  };
   return async (request: IncomingMessage, response: ServerResponse, next: () => void) => {
-    const url = new URL(request.url ?? '/', 'http://localhost');
-    if (!url.pathname.startsWith('/api/timer/')) return next();
     try {
-      if (request.headers.origin) requireThat(new URL(request.headers.origin).host === request.headers.host, 'Cross-origin requests denied.', 403);
+      const url = new URL(request.url ?? '/', 'http://localhost');
+      if (!url.pathname.startsWith('/api/timer/')) return next();
+      const origin = request.headers.origin;
+      if (origin) {
+        const permitted = options.production
+          ? options.allowedOrigins?.includes(origin)
+          : options.allowedOrigins?.includes(origin) || new URL(origin).host === request.headers.host;
+        requireThat(permitted, 'Cross-origin requests denied.', 403);
+        response.setHeader('Access-Control-Allow-Origin', origin);
+        response.setHeader('Vary', 'Origin');
+      }
+      response.setHeader('X-Content-Type-Options', 'nosniff');
+      take('ip:' + (request.socket.remoteAddress ?? 'unknown'), options.rateLimit ?? 30000);
+      if (request.method === 'OPTIONS') {
+        response.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        response.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+        response.writeHead(204); response.end(); return;
+      }
       const token = request.headers.authorization?.replace(/^Bearer /, '') ?? '';
+      if (token) {
+        requireThat(/^[a-f0-9-]{16,100}$/.test(token), 'Invalid credential.', 403);
+        take('token:' + token, 240);
+      }
       const sessionId = url.searchParams.get('id') ?? '';
+      requireThat([...url.searchParams.keys()].every(key => key === 'id'), 'Unexpected query fields.', 400);
       if (request.method === 'GET' && url.pathname === '/api/timer/state') return json(response, 200, relay.snapshot(sessionId, token));
       if (request.method === 'POST') {
         requireThat(request.headers['content-type']?.startsWith('application/json'), 'Expected JSON.', 415);
         const body = await readJson(request);
+        requireThat(body && typeof body === 'object' && !Array.isArray(body), 'Expected an object.', 400);
+        const schemas: Record<string, string[]> = {
+          create: ['laneCount', 'number'], preview: ['sessionId', 'joinToken'],
+          join: ['sessionId', 'joinToken', 'lane', 'token'], command: ['sessionId', 'command'], close: ['sessionId'],
+        };
+        const endpoint = url.pathname.slice('/api/timer/'.length);
+        requireThat(schemas[endpoint] && Object.keys(body).every(key => schemas[endpoint].includes(key)), 'Unexpected request fields.', 400);
+        for (const key of ['sessionId', 'joinToken', 'token']) if (key in body) requireThat(typeof body[key] === 'string' && /^[a-f0-9-]{16,100}$/.test(body[key] as string), 'Invalid identifier.', 400);
+        if (endpoint === 'create') take('create:' + (request.socket.remoteAddress ?? 'unknown'), 10);
         if (url.pathname === '/api/timer/create') return json(response, 200, relay.create(body.laneCount as number, body.number as number));
         if (url.pathname === '/api/timer/preview') return json(response, 200, relay.preview(body.sessionId as string, body.joinToken as string));
         if (url.pathname === '/api/timer/join') return json(response, 200, relay.join(body.sessionId as string, body.joinToken as string, body.lane as number, body.token as string));

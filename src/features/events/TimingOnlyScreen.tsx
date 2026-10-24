@@ -78,7 +78,7 @@ export default function TimingOnlyScreen() {
 
   return <main className="timer-only"><div className="timer-shell">
     <Link to={AppRoute.HOME}>Home</Link>
-    <p><Link to="/timing/multi">Multi-device Timing Only (local relay)</Link></p><header><p>RACEFLOW · BUILD 017</p><h1>Timer Only</h1><p>Single-device race timing · Chief Timekeeper</p></header>
+    <p><Link to="/timing/multi">Multi-device Timing Only</Link></p><header><p>RACEFLOW · BUILD 018</p><h1>Timer Only</h1><p>Single-device race timing · Chief Timekeeper</p></header>
     {message && <p className="timer-notice" role="status">{message}</p>}
     <section aria-label="Race controls" className="timer-panel">
       <div className="timer-heading"><h2>Race {race.number}</h2><strong>{locked ? 'Confirmed & locked' : race.state === 'ready' ? 'Ready' : race.state === 'running' ? 'Running' : 'Stopped · review results'}</strong></div>
