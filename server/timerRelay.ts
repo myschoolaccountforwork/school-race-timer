@@ -40,7 +40,7 @@ export class TimerRelay {
     requireThat(Number.isSafeInteger(number) && number > 0 && number <= 1000000, 'Invalid race number.', 400);
     requireThat(this.sessions.size < 100, 'Relay session capacity reached.', 503);
     const session: Session = { id: randomUUID(), chiefToken: randomUUID(), joinToken: randomUUID(), revision: 0,
-      race: newRace(number, laneCount), volunteers: [], submissions: [], history: [], chiefLastSeen: this.clock(), created: this.clock(), touched: this.clock(), commands: new Map(), attempts: new Set(), captures: [], clocks: new ClockEvidence(this.relayEpoch, randomUUID()) };
+      race: newRace(number, laneCount), volunteers: [], submissions: [], history: [], chiefLastSeen: this.clock(), created: this.clock(), touched: this.clock(), commands: new Map(), attempts: new Set(), captures: [], clocks: new ClockEvidence(this.relayEpoch, randomUUID(), this.clock) };
     session.attempts.add(session.race.id);
     this.sessions.set(session.id, session);
     return { sessionId: session.id, token: session.chiefToken, joinToken: session.joinToken, role: 'chief' as const };
@@ -91,8 +91,14 @@ export class TimerRelay {
     const start = s.captures.find(c => c.raceId === capture.raceId && c.kind === 'start' && c.source === 'chief');
     const owner = s.volunteers.find(v => v.id === capture.volunteerId)?.token ?? '';
     const result = reconcile(start, capture, this.relayEpoch,
-      start ? s.clocks.pin(s.chiefToken, start) : [], s.clocks.pin(owner, capture));
-    return { ...result, id: createHash('sha256').update(JSON.stringify(result)).digest('hex') };
+      start ? s.clocks.pin(s.chiefToken, start) : [], s.clocks.pin(owner, capture),
+      { start: start ? s.clocks.available(s.chiefToken, start) : [], finish: s.clocks.available(owner, capture) });
+    if (result.diagnostics?.start) result.diagnostics.start.health = s.clocks.health(s.chiefToken);
+    if (result.diagnostics) result.diagnostics.finish.health = s.clocks.health(owner);
+    // Health counters and age diagnostics change during polling, not the
+    // measurement. They must not invalidate an otherwise unchanged selection.
+    const calculation = { ...result }; delete calculation.diagnostics;
+    return { ...result, id: createHash('sha256').update(JSON.stringify(calculation)).digest('hex') };
   }
   private needsReview(s: Session, lane: TimerRace['lanes'][number]) {
     if (!lane.reconciliation) return false;

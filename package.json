@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "test": "node --test src/features/timing/timerOnly.test.mjs server/timerRelay.test.mjs server/internetRelay.test.mjs server/localCapture.test.mjs server/chiefScreen.test.mjs server/reconciliation.test.mjs",
+    "test": "node --test src/features/timing/timerOnly.test.mjs server/timerRelay.test.mjs server/internetRelay.test.mjs server/localCapture.test.mjs server/chiefScreen.test.mjs server/reconciliation.test.mjs server/reconciliationPending.test.mjs",
     "test:preview": "node --test server/timerPreview.test.mjs",
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",

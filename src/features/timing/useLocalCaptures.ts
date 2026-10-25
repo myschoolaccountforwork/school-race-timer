@@ -3,7 +3,7 @@ import { CaptureJournal, chiefElapsed } from './localCapture';
 import type { TimingCapture } from './localCapture';
 import type { RelayCredentials, RelaySnapshot } from './relayProtocol';
 import { complete } from './timerOnly';
-import { timerRequest } from './useTimerRelay';
+import { timerRequest, TimerApiError } from './useTimerRelay';
 import type { ClockProbe, FourTimestamp } from './reconciliation';
 
 export function useLocalCaptures(credentials: RelayCredentials | null, snapshot: RelaySnapshot | null) {
@@ -23,8 +23,23 @@ export function useLocalCaptures(credentials: RelayCredentials | null, snapshot:
     if (!journal || !credentials) return;
     let active = true;
     let timer: ReturnType<typeof setTimeout>;
+    async function complete(sample: FourTimestamp) {
+      if (!journal || !credentials) return;
+      try {
+        await timerRequest('clock/complete', { sessionId: credentials.sessionId, sample }, credentials);
+        journal.acknowledgeClock(sample.id);
+      } catch (error) {
+        if (error instanceof TimerApiError && error.code >= 400 && error.code < 500 && error.code !== 408 && error.code !== 429) journal.acknowledgeClock(sample.id, error.message);
+        throw error;
+      }
+    }
     async function sync() {
       if (!journal || !credentials) return;
+      // One durable completion retry per cycle, separate from capture delivery.
+      // Failure must not stop collecting new evidence or block a Finish tap.
+      const pending = journal.pendingClock();
+      if (pending) void complete(pending).catch(() => { /* Queue/error status below; do not delay new probes. */ });
+      if (!active) return;
       const epochId = journal.epochId;
       const t1 = performance.now();
       try {
@@ -36,7 +51,7 @@ export function useLocalCaptures(credentials: RelayCredentials | null, snapshot:
         const sample: FourTimestamp = Object.freeze({ ...probe, t4 });
         // Keep signed evidence locally for delayed/retried original captures.
         if (!journal.rememberClock(sample)) throw new Error(journal.error);
-        await timerRequest('clock/complete', { sessionId: credentials.sessionId, sample }, credentials);
+        await complete(sample);
         if (active) setClockStatus(`Four-timestamp sample received. Latest network round trip about ${Math.ceil(Math.max(0, (t4 - t1) - (probe.t3 - probe.t2)))} ms. Verification uses both phones' evidence.`);
       } catch (error) { if (active) setClockStatus(error instanceof Error ? error.message : 'Clock evidence unavailable; captures remain local and queued.'); }
       if (active) timer = setTimeout(() => { void sync(); }, 3000);
@@ -98,6 +113,13 @@ export function useLocalCaptures(credentials: RelayCredentials | null, snapshot:
   }
   const interrupted = Boolean(chief && race?.startReference === 'chief-local' && race.state === 'running' && !usableStart);
   const unsent = currentRecords.some(r => r.delivery === 'captured' || r.delivery === 'saved');
+  const clockDelivery = journal ? {
+    retained: journal.clockSamples.length,
+    received: journal.clockSamples.filter(s => journal.clockReceipts[s.id]?.state === 'received').length,
+    pending: journal.clockSamples.filter(s => !journal.clockReceipts[s.id]).length,
+    rejected: journal.clockSamples.filter(s => journal.clockReceipts[s.id]?.state === 'rejected').length,
+    lastError: Object.values(journal.clockReceipts).findLast(r => r.state === 'rejected')?.error,
+  } : null;
   useEffect(() => {
     journal?.setRunning(Boolean(chief && race?.state === 'running'));
   }, [journal, chief, race?.state]);
@@ -119,10 +141,10 @@ export function useLocalCaptures(credentials: RelayCredentials | null, snapshot:
     if (!journal) return;
     const url = URL.createObjectURL(new Blob([JSON.stringify({ version: 1, sessionId: credentials?.sessionId, role: credentials?.role,
       participantId: snapshot?.selfId, records: journal.records, references: journal.references,
-      clockSamples: journal.clockSamples, receivedCaptures: snapshot?.captures ?? [] }, null, 2)], { type: 'application/json' }));
+      clockSamples: journal.clockSamples, clockReceipts: journal.clockReceipts, receivedCaptures: snapshot?.captures ?? [] }, null, 2)], { type: 'application/json' }));
     const link = document.createElement('a'); link.href = url; link.download = 'raceflow-capture-archive.json'; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   return { race, journal, records, currentRecords, interrupted, unsent, localStart, usableStart, capture, download,
-    clockStatus, error: actionError || journal?.error || '', retrySaving: () => { journal?.save(); update(); } };
+    clockStatus, clockDelivery, error: actionError || journal?.error || '', retrySaving: () => { journal?.save(); update(); } };
 }

@@ -23,6 +23,7 @@ export class CaptureJournal {
   records: CaptureRecord[] = [];
   references: NonNullable<TimerRace['chiefStart']>[] = [];
   clockSamples: FourTimestamp[] = [];
+  clockReceipts: Record<string, { state: 'received' | 'rejected'; error?: string }> = {};
   error = '';
   interrupted = false;
   running = false;
@@ -50,6 +51,12 @@ export class CaptureJournal {
           typeof s.id !== 'string' || typeof s.epochId !== 'string' || typeof s.relayEpoch !== 'string' ||
           typeof s.proof !== 'string' || ![s.t1, s.t2, s.t3, s.t4].every(Number.isFinite) || s.t4 < s.t1)) throw new Error('Invalid clock archive');
         this.clockSamples = (archive.clockSamples ?? []).map((s: FourTimestamp) => Object.freeze(s));
+        if (archive.clockReceipts !== undefined && (!archive.clockReceipts || typeof archive.clockReceipts !== 'object' || Array.isArray(archive.clockReceipts))) throw new Error('Invalid clock delivery archive');
+        this.clockReceipts = Object.fromEntries(this.clockSamples.flatMap(s => {
+          const receipt = archive.clockReceipts?.[s.id];
+          if (receipt && !['received', 'rejected'].includes(receipt.state)) throw new Error('Invalid clock receipt');
+          return receipt ? [[s.id, receipt]] : [];
+        }));
       }
     } catch { this.loadFailed = true; this.error = 'Local capture archive cannot be read. Export/recover browser data before starting; do not clear it.'; }
   }
@@ -61,7 +68,13 @@ export class CaptureJournal {
   setRunning(value: boolean) { this.running = value; }
   rememberClock(sample: FourTimestamp) {
     this.clockSamples = [...this.clockSamples.filter(s => s.id !== sample.id), Object.freeze({ ...sample })].slice(-64);
+    this.clockReceipts = Object.fromEntries(Object.entries(this.clockReceipts).filter(([id]) => this.clockSamples.some(s => s.id === id)));
     return this.save();
+  }
+  pendingClock() { return this.clockSamples.find(s => !this.clockReceipts[s.id]); }
+  acknowledgeClock(id: string, error?: string) {
+    this.clockReceipts[id] = error ? { state: 'rejected', error } : { state: 'received' };
+    this.save();
   }
   rememberStart(start: NonNullable<TimerRace['chiefStart']>) {
     if (this.loadFailed || this.references.some(r => r.id === start.id)) return;
@@ -88,7 +101,7 @@ export class CaptureJournal {
     if (this.loadFailed) return false;
     try {
       const next = this.records.map(r => r.delivery === 'captured' ? { ...r, delivery: 'saved' as const } : r);
-      this.storage.setItem(this.key, JSON.stringify({ version: 1, records: next, references: this.references, clockSamples: this.clockSamples }));
+      this.storage.setItem(this.key, JSON.stringify({ version: 1, records: next, references: this.references, clockSamples: this.clockSamples, clockReceipts: this.clockReceipts }));
       this.records = next; this.error = '';
       return true;
     } catch {

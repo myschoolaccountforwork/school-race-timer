@@ -155,6 +155,8 @@ export default function RelayTimingScreen({ volunteer = false }: { volunteer?: b
         <p>Finish capture is local and does not wait for clock sync or upload acknowledgements. Volunteer measurements require authenticated clock evidence before official selection.</p>
         <p>{relay.synchronised ? `Legacy display clock uncertainty about ±${Math.ceil(relay.uncertainty ?? 0)} ms (not volunteer verification evidence).` : 'Clock alignment is insufficient. This is the legacy display estimate; it does not determine volunteer verification. Local capture remains available.'}</p>
         <p>{local.clockStatus}</p>
+        {local.clockDelivery && <p>Local signed clock evidence: {local.clockDelivery.retained} retained / {local.clockDelivery.received} acknowledged / {local.clockDelivery.pending} queued for completion retry / {local.clockDelivery.rejected} rejected.
+          {local.clockDelivery.lastError ? ` Latest rejection: ${local.clockDelivery.lastError}` : ''}</p>}
         <p>Verified means within the 100 ms total clock policy under stated assumptions. Physical timing accuracy is not validated.</p>
         <details className="relay-diagnostics"><summary>Connection and clock diagnostics</summary>
           <p>Connection: {relay.connected ? 'Connected' : 'Disconnected / reconnecting'}. Last successful response: {metric(relay.diagnostics.lastSuccessAge)} ago.</p>

@@ -212,6 +212,73 @@ test('rendered Chief and volunteer reconcile a preserved raw finish, select only
   assert.deepEqual(errors, []);
 });
 
+test('Pending explains lost Chief evidence and recovers from saved completions after the 15-second window', { timeout: 60000 }, async t => {
+  const app = await createServer({ server: { host: '127.0.0.1', port: 0 }, logLevel: 'silent',
+    define: { 'import.meta.env.VITE_TIMER_RELAY_URL': JSON.stringify(''), 'import.meta.env.VITE_PUBLIC_SITE_URL': JSON.stringify('') },
+  });
+  let browser, chief, volunteer, releaseProbe = () => {};
+  t.after(async () => {
+    releaseProbe();
+    if (chief) await chief.unrouteAll({ behavior: 'wait' });
+    if (volunteer) await volunteer.unrouteAll({ behavior: 'wait' });
+    await browser?.close(); await app.close();
+  });
+  await app.listen();
+  browser = await chromium.launch({ headless: true,
+    ...(process.env.RACEFLOW_TEST_BROWSER ? { executablePath: process.env.RACEFLOW_TEST_BROWSER } : { channel: 'msedge' }),
+  });
+  chief = await (await browser.newContext()).newPage();
+  volunteer = await (await browser.newContext()).newPage();
+  let first = true, allowCompletions = false;
+  let probeStarted;
+  const started = new Promise(resolve => { probeStarted = resolve; });
+  const held = new Promise(resolve => { releaseProbe = resolve; });
+  await chief.route('**/api/timer/clock/probe', async route => {
+    const response = await route.fetch();
+    if (first) { first = false; probeStarted(); await held; }
+    await route.fulfill({ response });
+  });
+  await chief.route('**/api/timer/clock/complete', route => allowCompletions ? route.continue() : route.abort());
+  const origin = `http://127.0.0.1:${app.httpServer.address().port}`;
+  await chief.goto(`${origin}/timing/multi`);
+  await chief.getByLabel('Number of lanes').selectOption('1');
+  await chief.getByRole('button', { name: 'Create session', exact: true }).click();
+  await started;
+  await chief.getByRole('button', { name: 'Chief Start (physical signal)', exact: true }).click();
+  const start = await chief.evaluate(() => {
+    const key = Object.keys(localStorage).find(k => k.startsWith('raceflow.captures.v1.'));
+    return JSON.parse(localStorage.getItem(key)).records.find(r => r.capture.kind === 'start').capture;
+  });
+  assert.equal(start.syncSamples.length, 0); // Original capture cannot be amended after receipt.
+  releaseProbe();
+  await volunteer.goto(await chief.locator('.relay-join-link input').inputValue());
+  await volunteer.getByRole('button', { name: 'Join Lane 1', exact: true }).click();
+  await volunteer.waitForFunction(() => {
+    const key = Object.keys(localStorage).find(k => k.startsWith('raceflow.captures.v1.'));
+    return key && JSON.parse(localStorage.getItem(key)).clockSamples.length >= 2;
+  });
+  await volunteer.getByRole('button', { name: /^Finish.*Lane 1$/ }).click();
+  await chief.locator('.volunteer-measurement > p').filter({ hasText: /Chief Start.*no authenticated four-timestamp evidence/ }).waitFor();
+  assert.equal(await chief.getByRole('button', { name: 'Use verified time as official' }).isEnabled(), false);
+  const before = await volunteer.evaluate(() => {
+    const key = Object.keys(localStorage).find(k => k.startsWith('raceflow.captures.v1.'));
+    return JSON.parse(localStorage.getItem(key)).records.find(r => r.capture.kind === 'finish').capture;
+  });
+  await chief.waitForFunction(at => performance.now() - at > 17000, start.localAt);
+  allowCompletions = true; // Fresh samples alone can no longer repair the Chief Start gap.
+  await chief.getByText('Verified (clock policy)', { exact: true }).waitFor();
+  const credentials = await chief.evaluate(() => JSON.parse(localStorage.getItem('timer-only-chief')));
+  const response = await chief.request.get(`${origin}/api/timer/state?id=${credentials.sessionId}`, { headers: { Authorization: `Bearer ${credentials.token}` } });
+  const snapshot = await response.json();
+  const received = snapshot.captures.find(c => c.id === before.id);
+  assert.equal(received.verification, 'verified');
+  assert.ok(received.reconciliation.uncertainty <= 100);
+  assert.equal(received.localAt, before.localAt);
+  assert.equal(received.raceId, before.raceId);
+  assert.deepEqual(snapshot.captures.find(c => c.id === start.id).syncSamples, []);
+  assert.ok(received.reconciliation.start.sampleIds.length >= 2);
+});
+
 async function pageEnabled(locator) {
   await locator.waitFor();
   await locator.page().waitForFunction(element => !element.disabled, await locator.elementHandle());
