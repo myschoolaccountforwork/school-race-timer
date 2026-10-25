@@ -1,10 +1,11 @@
 ﻿export type ResultStatus = '' | 'DNS' | 'DNF' | 'DQ';
-export interface TimerLane { lane: number; milliseconds: number | null; status: ResultStatus; corrected?: boolean }
+export interface TimerLane { lane: number; milliseconds: number | null; status: ResultStatus; corrected?: boolean; timingSource?: 'chief-local' | 'manual' }
 export interface TimerRace {
   id: string; number: number; laneCount: number;
   state: 'ready' | 'running' | 'stopped' | 'confirmed';
   startedAt: number | null; elapsed: number; lanes: TimerLane[]; confirmedAt?: string;
-  startReference?: 'relay' | 'tap';
+  startReference?: 'relay' | 'tap' | 'chief-local';
+  chiefStart?: { id: string; raceId: string; epochId: string; localAt: number; kind: 'start' };
 }
 export interface TimerSession { current: TimerRace; history: TimerRace[] }
 export const TIMER_ONLY_KEY = 'raceflow.timerOnly.v1';

@@ -4,12 +4,15 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { complete, newRace } from '../src/features/timing/timerOnly.ts';
 import type { TimerRace, ResultStatus } from '../src/features/timing/timerOnly.ts';
 import type { RelayCommand, RelaySnapshot, Submission, Volunteer } from '../src/features/timing/relayProtocol.ts';
+import { chiefElapsed } from '../src/features/timing/localCapture.ts';
+import type { TimingCapture } from '../src/features/timing/localCapture.ts';
 
 interface Participant extends Volunteer { token: string }
 interface Session {
   id: string; chiefToken: string; joinToken: string; revision: number; race: TimerRace;
   volunteers: Participant[]; submissions: Submission[]; history: TimerRace[];
   chiefLastSeen: number; created: number; touched: number; commands: Map<string, string>;
+  attempts: Set<string>; captures: NonNullable<RelaySnapshot['captures']>;
 }
 export class RelayError extends Error {
   code: number;
@@ -32,7 +35,8 @@ export class TimerRelay {
     requireThat(Number.isSafeInteger(number) && number > 0 && number <= 1000000, 'Invalid race number.', 400);
     requireThat(this.sessions.size < 100, 'Relay session capacity reached.', 503);
     const session: Session = { id: randomUUID(), chiefToken: randomUUID(), joinToken: randomUUID(), revision: 0,
-      race: newRace(number, laneCount), volunteers: [], submissions: [], history: [], chiefLastSeen: this.clock(), created: this.clock(), touched: this.clock(), commands: new Map() };
+      race: newRace(number, laneCount), volunteers: [], submissions: [], history: [], chiefLastSeen: this.clock(), created: this.clock(), touched: this.clock(), commands: new Map(), attempts: new Set(), captures: [] };
+    session.attempts.add(session.race.id);
     this.sessions.set(session.id, session);
     return { sessionId: session.id, token: session.chiefToken, joinToken: session.joinToken, role: 'chief' as const };
   }
@@ -71,7 +75,8 @@ export class TimerRelay {
     return structuredClone({ sessionId: id, revision: s.revision, serverNow: this.clock(), race: s.race,
       volunteers: s.volunteers.map(({ id, lane, lastSeen }) => ({ id, lane, lastSeen })),
       submissions: chief ? s.submissions : s.submissions.filter(r => r.volunteerId === self!.id),
-      history: chief ? s.history : [], chiefLastSeen: s.chiefLastSeen, selfId: self?.id });
+      history: chief ? s.history : [], chiefLastSeen: s.chiefLastSeen, selfId: self?.id,
+      captures: s.captures.filter(c => c.raceId === s.race.id && (chief || c.volunteerId === self?.id)) });
   }
   command(id: string, token: string, command: RelayCommand) {
     const s = this.get(id);
@@ -79,7 +84,7 @@ export class TimerRelay {
     const volunteer = s.volunteers.find(p => p.token === token);
     requireThat(chief || volunteer, 'Session access denied.', 403);
     requireThat(command && typeof command === 'object', 'Invalid command.', 400);
-    const allowed = new Set(['id', 'raceId', 'action', 'lane', 'milliseconds', 'status', 'submissionId', 'uncertainty', 'at']);
+    const allowed = new Set(['id', 'raceId', 'action', 'lane', 'milliseconds', 'status', 'submissionId', 'uncertainty', 'at', 'capture']);
     requireThat(Object.keys(command).every(key => allowed.has(key)), 'Unexpected command fields.', 400);
     requireThat(typeof command.id === 'string' && /^[a-f0-9-]{16,100}$/.test(command.id), 'Invalid command ID.', 400);
     requireThat(command.status === undefined || statuses.has(command.status), 'Invalid status.', 400);
@@ -91,6 +96,14 @@ export class TimerRelay {
     const fingerprint = JSON.stringify({ token, command });
     const prior = s.commands.get(command.id);
     if (prior) { requireThat(prior === fingerprint, 'Duplicate command ID with different data.'); return this.snapshot(id, token); }
+    if (command.action === 'localCapture') {
+      requireThat(Object.keys(command).every(k => ['id', 'raceId', 'action', 'capture'].includes(k)), 'Unexpected capture command fields.', 400);
+      requireThat(s.commands.size < 20000, 'Session command limit reached.', 503);
+      this.localCapture(s, command, chief, volunteer);
+      s.commands.set(command.id, fingerprint); s.revision++; s.touched = this.clock();
+      return this.snapshot(id, token);
+    }
+    requireThat(command.capture === undefined, 'Capture requires localCapture action.', 400);
     requireThat(command.raceId === s.race.id, 'Stale race: this result belongs to an earlier start.');
     requireThat(s.commands.size < 20000, 'Session command limit reached. Create a new session.', 503);
     if (command.action === 'submit') {
@@ -116,8 +129,48 @@ export class TimerRelay {
       requireThat(chief, 'Only the Chief may control races or official results.', 403);
       this.chiefCommand(s, command);
     }
+    s.attempts.add(s.race.id);
     s.commands.set(command.id, fingerprint); s.revision++; s.touched = this.clock();
     return this.snapshot(id, token);
+  }
+  localCapture(s: Session, command: RelayCommand, chief: boolean, volunteer?: Participant) {
+    const c = command.capture as TimingCapture;
+    requireThat(c && typeof c === 'object' && !Array.isArray(c), 'Missing capture.', 400);
+    requireThat(Object.keys(c).every(k => ['id', 'raceId', 'epochId', 'localAt', 'kind', 'lane', 'startId', 'evidence'].includes(k)), 'Unexpected capture fields.', 400);
+    for (const id of [c.id, c.raceId, c.epochId, ...(c.startId === undefined ? [] : [c.startId])]) requireThat(typeof id === 'string' && /^[a-f0-9-]{16,100}$/.test(id), 'Invalid capture identifier.', 400);
+    requireThat(c.id === command.id && c.raceId === command.raceId, 'Capture identity mismatch.', 400);
+    requireThat(Number.isFinite(c.localAt) && c.localAt >= 0 && c.localAt <= 1e15, 'Invalid capture timestamp.', 400);
+    requireThat(['start', 'finish', 'stop'].includes(c.kind), 'Invalid capture kind.', 400);
+    if (c.evidence !== undefined) {
+      requireThat(c.evidence && typeof c.evidence === 'object' && Object.keys(c.evidence).every(k => ['localMidpoint', 'serverTime', 'uncertainty'].includes(k)), 'Invalid evidence fields.', 400);
+      requireThat([c.evidence.localMidpoint, c.evidence.serverTime, c.evidence.uncertainty].every(v => Number.isFinite(v) && v >= 0 && v <= 1e15), 'Invalid clock evidence.', 400);
+    }
+    requireThat(s.attempts.has(c.raceId), 'Unknown race attempt; capture retained on your phone.', 409);
+    requireThat(chief || (volunteer && c.kind === 'finish'), 'Only the Chief can start or stop.', 403);
+    if (c.kind === 'finish') {
+      requireThat(Number.isInteger(c.lane) && c.lane! >= 1 && c.lane! <= s.race.laneCount, 'Invalid lane.', 400);
+      requireThat(chief || c.lane === volunteer?.lane, 'Capture lane does not match assignment.', 403);
+    } else requireThat(c.lane === undefined && (c.kind !== 'start' || c.startId === undefined), 'Invalid start/stop fields.', 400);
+    requireThat(!s.captures.some(p => p.raceId === c.raceId && p.kind === c.kind && p.lane === c.lane && p.source === (chief ? 'chief' : 'lane') && p.volunteerId === volunteer?.id), 'A capture already exists for this lane and attempt.', 409);
+    const current = c.raceId === s.race.id;
+    if (c.kind === 'start') {
+      requireThat(current && s.race.state === 'ready' && !complete(s.race), 'Race is not ready to start.');
+      s.race.chiefStart = { id: c.id, raceId: c.raceId, epochId: c.epochId, localAt: c.localAt, kind: 'start' };
+      s.race.startReference = 'chief-local'; s.race.startedAt = null; s.race.state = 'running';
+    } else if (chief && current && s.race.state !== 'confirmed') {
+      const start = s.race.chiefStart;
+      const ms = start ? chiefElapsed(start, c) : null;
+      requireThat(ms !== null, 'Chief clock continuity lost. Use manual correction or reset.', 409);
+      requireThat(s.race.state === 'running' || (c.kind === 'finish' && s.race.state === 'stopped' && ms <= s.race.elapsed), 'Race is stopped.', 409);
+      if (c.kind === 'stop') { s.race.state = 'stopped'; s.race.elapsed = ms; }
+      else {
+        const lane = s.race.lanes[c.lane! - 1];
+        // An immutable capture must never overwrite a later Chief correction/status.
+        if (lane.milliseconds === null && !lane.status && !lane.corrected) { lane.milliseconds = ms; lane.timingSource = 'chief-local'; }
+        if (complete(s.race)) { s.race.state = 'stopped'; s.race.elapsed = Math.max(ms, ...s.race.lanes.map(l => l.milliseconds ?? 0)); }
+      }
+    }
+    s.captures.push({ ...structuredClone(c), source: chief ? 'chief' : 'lane', ...(volunteer ? { volunteerId: volunteer.id } : {}), verification: 'pending' });
   }
   chiefCommand(s: Session, c: RelayCommand) {
     const race = s.race;
@@ -128,6 +181,7 @@ export class TimerRelay {
     requireThat(race.state !== 'confirmed', 'Results are locked.');
     let eventTime = this.clock();
     if (['start', 'stop', 'stopLane', 'stopAll'].includes(c.action)) {
+      requireThat(race.startReference !== 'chief-local', 'Use original Chief local captures for timing this race.', 409);
       requireThat(typeof c.at === 'number' && Number.isFinite(c.at) && typeof c.uncertainty === 'number' && c.uncertainty >= 0 && c.uncertainty <= 100, 'A fresh synchronised clock is required.', 400);
       requireThat(c.at <= eventTime + c.uncertainty + 10 && eventTime - c.at < 5000, 'Timing action expired. Check the race before retrying.');
       eventTime = c.at;
@@ -166,6 +220,10 @@ export class TimerRelay {
         lane.status = candidate.status!;
         lane.milliseconds = lane.status === 'DNS' || lane.status === 'DNF' ? null : ms!;
         lane.corrected = true;
+        lane.timingSource = 'manual';
+        if (race.startReference === 'chief-local' && complete(race)) {
+          race.state = 'stopped'; race.elapsed = Math.max(...race.lanes.map(l => l.milliseconds ?? 0));
+        }
         break;
       }
       case 'confirm':

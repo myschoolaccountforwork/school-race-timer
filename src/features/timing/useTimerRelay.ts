@@ -145,6 +145,6 @@ export function useTimerRelay(credentials: RelayCredentials | null, onSnapshot?:
     if (!current || !timing || !synchronised || current.race.state !== 'running') return Promise.resolve(false);
     return command('submit', { lane, status: '', milliseconds: Math.max(0, Math.round(serverTimeAt(timing, performance.now()) - current.race.startedAt!)), uncertainty: timing.uncertainty + Math.max(0, performance.now() - timing.localMidpoint) * 0.0001 });
   }
-  return { snapshot, connected, chiefConnected, synchronised, syncDisabledReason, diagnostics, serverNow, raceNow, uncertainty: Number.isFinite(uncertainty) ? uncertainty : undefined,
+  return { snapshot, connected, chiefConnected, synchronised, syncDisabledReason, diagnostics, clockEvidence: sample ?? latestSample, localNow: tick, serverNow, raceNow, uncertainty: Number.isFinite(uncertainty) ? uncertainty : undefined,
     error: error || transportError, busy, pending, command, finish, retry: () => pendingRef.current ? send(pendingRef.current) : Promise.resolve(false) };
 }
