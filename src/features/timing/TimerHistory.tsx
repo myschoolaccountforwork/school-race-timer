@@ -14,8 +14,9 @@ export default function TimerHistory({ races }: { races: TimerRace[] }) {
     <div className="timer-controls">{(['csv', 'xlsx', 'pdf'] as const).map(f => <button key={f} disabled={!races.length} onClick={() => download(f)}>Export all · {f.toUpperCase()}</button>)}</div>
     {[...races].reverse().map(r => <details key={r.id}><summary>Race {r.number} · {r.laneCount} lanes · {new Date(r.confirmedAt!).toLocaleString()}</summary>
       {r.startReference === 'relay' && <p className="timer-notice">Internet test: start recorded on relay receipt. Unknown delivery delay prevents verifying physical-start race duration.</p>}
-      {r.startReference === 'chief-local' && <p>Original Chief local Start. Official results use Chief local captures or manual corrections; volunteer raw captures remain Pending verification and are excluded.</p>}
-      <ul>{r.lanes.map(l => <li key={l.lane}>Lane {l.lane}: {l.milliseconds === null ? '—' : formatTime(l.milliseconds)} {l.status} {positions(r.lanes)[l.lane] ? `· Place ${positions(r.lanes)[l.lane]}` : ''}</li>)}</ul>
+      {r.startReference === 'chief-local' && <p>Original Chief local Start. Official results retain their source: Chief local, manual correction, or a selected clock-policy verified volunteer capture. Unselected raw measurements are excluded. Physical timing accuracy is not validated.</p>}
+      <ul>{r.lanes.map(l => <li key={l.lane}>Lane {l.lane}: {l.milliseconds === null ? '—' : formatTime(l.milliseconds)} {l.status} {positions(r.lanes)[l.lane] ? `· Place ${positions(r.lanes)[l.lane]}` : ''}
+        {l.reviewRequired ? ' / Unverified: timing evidence requires review; locked time retained for audit.' : l.reconciliation ? ` / Clock-policy verified at selection, +/-${Math.ceil(l.reconciliation.uncertainty ?? 0)} ms; physical accuracy not validated.` : ''}</li>)}</ul>
       <div className="timer-controls">{(['csv', 'xlsx', 'pdf'] as const).map(f => <button key={f} onClick={() => download(f, [r])}>{f.toUpperCase()}</button>)}</div>
     </details>)}
   </section>;

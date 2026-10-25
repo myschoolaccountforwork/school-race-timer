@@ -5,6 +5,8 @@ import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createServer } from 'vite';
 import { chromium } from 'playwright-core';
+import { readFile } from 'node:fs/promises';
+import * as XLSX from 'xlsx';
 
 test('rendered Chief screen captures original local Start and consecutive lanes without sync or acknowledgements', { timeout: 60000 }, async t => {
   const app = await createServer({
@@ -12,21 +14,25 @@ test('rendered Chief screen captures original local Start and consecutive lanes 
     // Isolate local UI tests from production .env settings.
     define: { 'import.meta.env.VITE_TIMER_RELAY_URL': JSON.stringify(''), 'import.meta.env.VITE_PUBLIC_SITE_URL': JSON.stringify('') },
   });
+  let browser, page;
+  let releaseStart = () => {};
+  t.after(async () => {
+    releaseStart();
+    if (page) await page.unrouteAll({ behavior: 'wait' });
+    await browser?.close();
+    await app.close();
+  });
   await app.listen();
-  t.after(() => app.close());
-  const browser = await chromium.launch({ headless: true,
+  browser = await chromium.launch({ headless: true,
     ...(process.env.RACEFLOW_TEST_BROWSER ? { executablePath: process.env.RACEFLOW_TEST_BROWSER } : { channel: 'msedge' }),
   });
-  t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   const requests = [];
-  let releaseStart;
   let startDelivered;
   const pendingStart = new Promise(resolve => { releaseStart = resolve; });
   const startAtRelay = new Promise(resolve => { startDelivered = resolve; });
-  t.after(() => releaseStart());
   await page.route('**/api/timer/**', async route => {
     const path = new URL(route.request().url()).pathname;
     if (path.endsWith('/state')) {
@@ -108,3 +114,105 @@ test('rendered Chief screen captures original local Start and consecutive lanes 
   assert.deepEqual(snapshot.race.lanes.slice(0, 3).map(l => l.milliseconds), finishes.map(r => Math.round(r.capture.localAt - originalStart.capture.localAt)));
   assert.deepEqual(errors, []);
 });
+
+test('rendered Chief and volunteer reconcile a preserved raw finish, select only verified evidence and export it', { timeout: 60000 }, async t => {
+  const app = await createServer({ server: { host: '127.0.0.1', port: 0 }, logLevel: 'silent',
+    define: { 'import.meta.env.VITE_TIMER_RELAY_URL': JSON.stringify(''), 'import.meta.env.VITE_PUBLIC_SITE_URL': JSON.stringify('') },
+  });
+  let browser, chief, volunteer;
+  t.after(async () => {
+    if (chief) await chief.unrouteAll({ behavior: 'wait' });
+    if (volunteer) await volunteer.unrouteAll({ behavior: 'wait' });
+    await browser?.close();
+    await app.close();
+  });
+  await app.listen();
+  browser = await chromium.launch({ headless: true,
+    ...(process.env.RACEFLOW_TEST_BROWSER ? { executablePath: process.env.RACEFLOW_TEST_BROWSER } : { channel: 'msedge' }),
+  });
+  const chiefContext = await browser.newContext(), volunteerContext = await browser.newContext();
+  chief = await chiefContext.newPage(); volunteer = await volunteerContext.newPage();
+  const errors = [];
+  chief.on('pageerror', e => errors.push(e.message)); volunteer.on('pageerror', e => errors.push(e.message));
+  let slow = true, pause = false;
+  await volunteer.route('**/api/timer/clock/probe', async route => {
+    if (pause) return route.abort();
+    const response = await route.fetch();
+    if (slow) await delay(450);
+    if (pause) return route.abort();
+    await route.fulfill({ response });
+  });
+  const origin = `http://127.0.0.1:${app.httpServer.address().port}`;
+  await chief.goto(`${origin}/timing/multi`);
+  await chief.getByLabel('Number of lanes').selectOption('1');
+  await chief.getByRole('button', { name: 'Create session', exact: true }).click();
+  const join = await chief.locator('.relay-join-link input').inputValue();
+  await volunteer.goto(join);
+  await volunteer.getByRole('button', { name: 'Join Lane 1', exact: true }).click();
+  for (const page of [chief, volunteer]) await page.waitForFunction(() => {
+    const key = Object.keys(localStorage).find(k => k.startsWith('raceflow.captures.v1.'));
+    return key && JSON.parse(localStorage.getItem(key)).clockSamples.length >= 2;
+  });
+  await chief.getByRole('button', { name: 'Chief Start (physical signal)', exact: true }).click();
+  await volunteer.getByText('Chief original Start reference:', { exact: false }).waitFor();
+  assert.equal(await volunteer.getByRole('button', { name: /Start/ }).count(), 0);
+  const finish = volunteer.getByRole('button', { name: /^Finish.*Lane 1$/ });
+  assert.equal(await finish.isEnabled(), true);
+  await finish.click();
+  await chief.getByText('Unverified', { exact: true }).waitFor();
+  const select = chief.getByRole('button', { name: 'Use verified time as official', exact: true });
+  assert.equal(await select.isEnabled(), false);
+  const raw = await volunteer.evaluate(() => {
+    const key = Object.keys(localStorage).find(k => k.startsWith('raceflow.captures.v1.'));
+    return JSON.parse(localStorage.getItem(key)).records.find(r => r.capture.kind === 'finish').capture;
+  });
+  slow = false;
+  await chief.getByText('Verified (clock policy)', { exact: true }).waitFor();
+  await volunteer.getByText('Verified (clock policy)', { exact: true }).waitFor();
+  pause = true;
+  await chief.route('**/api/timer/clock/probe', route => route.abort());
+  const rawAfter = await volunteer.evaluate(() => {
+    const key = Object.keys(localStorage).find(k => k.startsWith('raceflow.captures.v1.'));
+    return JSON.parse(localStorage.getItem(key)).records.find(r => r.capture.kind === 'finish').capture;
+  });
+  assert.deepEqual(rawAfter, raw);
+  assert.equal(await select.isEnabled(), true);
+  await select.click();
+  await chief.getByText('Official selection: clock-policy verified at selection,', { exact: false }).waitFor();
+  chief.on('dialog', dialog => dialog.accept());
+  const confirm = chief.getByRole('button', { name: 'Confirm & lock results', exact: true });
+  await pageEnabled(confirm);
+  await confirm.click();
+  await pageEnabled(chief.getByRole('button', { name: 'Next Race', exact: true }));
+  const credentials = await chief.evaluate(() => JSON.parse(localStorage.getItem('timer-only-chief')));
+  const response = await chief.request.get(`${origin}/api/timer/state?id=${credentials.sessionId}`, { headers: { Authorization: `Bearer ${credentials.token}` } });
+  const snapshot = await response.json();
+  const lane = snapshot.history[0].lanes[0];
+  assert.equal(lane.timingSource, 'volunteer-verified');
+  assert.equal(lane.reconciliation.captureId, raw.id);
+  assert.ok(lane.reconciliation.uncertainty <= 100);
+  for (const format of ['csv', 'xlsx', 'pdf']) {
+    const downloading = chief.waitForEvent('download');
+    await chief.getByRole('button', { name: new RegExp(`^Export all.*${format.toUpperCase()}$`) }).click();
+    const download = await downloading;
+    const data = await readFile(await download.path());
+    if (format === 'pdf') {
+      assert.equal(data.subarray(0, 4).toString(), '%PDF');
+      assert.ok(data.toString('latin1').includes(raw.id));
+      assert.ok(data.toString('latin1').includes('raceflow-020-total-100ms-v1'));
+    } else {
+      const book = XLSX.read(data, { type: 'buffer' });
+      const row = XLSX.utils.sheet_to_json(book.Sheets[book.SheetNames[0]])[0];
+      assert.equal(row.Milliseconds, lane.milliseconds);
+      assert.equal(row['Capture ID'], raw.id);
+      assert.equal(row['Uncertainty (ms)'], lane.reconciliation.uncertainty);
+      assert.match(row.Verification, /Clock-policy verified/);
+    }
+  }
+  assert.deepEqual(errors, []);
+});
+
+async function pageEnabled(locator) {
+  await locator.waitFor();
+  await locator.page().waitForFunction(element => !element.disabled, await locator.elementHandle());
+}

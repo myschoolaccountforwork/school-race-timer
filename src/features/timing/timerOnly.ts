@@ -1,5 +1,7 @@
 ﻿export type ResultStatus = '' | 'DNS' | 'DNF' | 'DQ';
-export interface TimerLane { lane: number; milliseconds: number | null; status: ResultStatus; corrected?: boolean; timingSource?: 'chief-local' | 'manual' }
+import type { Reconciliation } from './reconciliation.ts';
+export interface TimerLane { lane: number; milliseconds: number | null; status: ResultStatus; corrected?: boolean; timingSource?: 'chief-local' | 'manual' | 'volunteer-verified'; chiefLocalMilliseconds?: number;
+  reconciliation?: Reconciliation & { id: string; captureId: string; volunteerId: string }; reviewRequired?: boolean }
 export interface TimerRace {
   id: string; number: number; laneCount: number;
   state: 'ready' | 'running' | 'stopped' | 'confirmed';

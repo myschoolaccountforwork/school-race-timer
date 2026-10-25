@@ -4,6 +4,7 @@ import type { TimingCapture } from './localCapture';
 import type { RelayCredentials, RelaySnapshot } from './relayProtocol';
 import { complete } from './timerOnly';
 import { timerRequest } from './useTimerRelay';
+import type { ClockProbe, FourTimestamp } from './reconciliation';
 
 export function useLocalCaptures(credentials: RelayCredentials | null, snapshot: RelaySnapshot | null) {
   const journal = useMemo(() => credentials ? new CaptureJournal({
@@ -11,11 +12,38 @@ export function useLocalCaptures(credentials: RelayCredentials | null, snapshot:
   }, `raceflow.captures.v1.${credentials.sessionId}.${credentials.token}`) : null, [credentials]);
   const [, redraw] = useState(0);
   const [actionError, setActionError] = useState('');
+  const [clockStatus, setClockStatus] = useState('Collecting authenticated four-timestamp evidence. Capture does not wait for this.');
   const update = () => redraw(n => n + 1);
 
   useEffect(() => {
     if (journal && snapshot?.race.chiefStart) journal.rememberStart(snapshot.race.chiefStart);
   }, [journal, snapshot]);
+
+  useEffect(() => {
+    if (!journal || !credentials) return;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    async function sync() {
+      if (!journal || !credentials) return;
+      const epochId = journal.epochId;
+      const t1 = performance.now();
+      try {
+        const probe = await timerRequest<ClockProbe>('clock/probe', { sessionId: credentials.sessionId, epochId, t1 }, credentials);
+        const t4 = performance.now();
+        if (!active) return;
+        if (epochId !== journal.epochId || probe.epochId !== epochId || probe.t1 !== t1) throw new Error('Clock epoch changed during probe; discarding this sample.');
+        if (t4 < t1) { journal.interrupt(); throw new Error('Clock discontinuity; a new clock epoch is required.'); }
+        const sample: FourTimestamp = Object.freeze({ ...probe, t4 });
+        // Keep signed evidence locally for delayed/retried original captures.
+        if (!journal.rememberClock(sample)) throw new Error(journal.error);
+        await timerRequest('clock/complete', { sessionId: credentials.sessionId, sample }, credentials);
+        if (active) setClockStatus(`Four-timestamp sample received. Latest network round trip about ${Math.ceil(Math.max(0, (t4 - t1) - (probe.t3 - probe.t2)))} ms. Verification uses both phones' evidence.`);
+      } catch (error) { if (active) setClockStatus(error instanceof Error ? error.message : 'Clock evidence unavailable; captures remain local and queued.'); }
+      if (active) timer = setTimeout(() => { void sync(); }, 3000);
+    }
+    void sync();
+    return () => { active = false; clearTimeout(timer); };
+  }, [journal, credentials]);
 
   useEffect(() => {
     if (!journal || !credentials) return;
@@ -57,6 +85,7 @@ export function useLocalCaptures(credentials: RelayCredentials | null, snapshot:
     for (const r of currentRecords.filter(r => r.capture.kind === 'finish')) {
       const lane = race.lanes.find(l => l.lane === r.capture.lane);
       const ms = chiefElapsed(localStart, r.capture);
+      if (lane && ms !== null) lane.chiefLocalMilliseconds = ms;
       if (lane && ms !== null && lane.milliseconds === null && !lane.status && !lane.corrected) {
         lane.milliseconds = ms; lane.timingSource = 'chief-local';
       }
@@ -90,10 +119,10 @@ export function useLocalCaptures(credentials: RelayCredentials | null, snapshot:
     if (!journal) return;
     const url = URL.createObjectURL(new Blob([JSON.stringify({ version: 1, sessionId: credentials?.sessionId, role: credentials?.role,
       participantId: snapshot?.selfId, records: journal.records, references: journal.references,
-      receivedCaptures: snapshot?.captures ?? [] }, null, 2)], { type: 'application/json' }));
+      clockSamples: journal.clockSamples, receivedCaptures: snapshot?.captures ?? [] }, null, 2)], { type: 'application/json' }));
     const link = document.createElement('a'); link.href = url; link.download = 'raceflow-capture-archive.json'; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   return { race, journal, records, currentRecords, interrupted, unsent, localStart, usableStart, capture, download,
-    error: actionError || journal?.error || '', retrySaving: () => { journal?.save(); update(); } };
+    clockStatus, error: actionError || journal?.error || '', retrySaving: () => { journal?.save(); update(); } };
 }

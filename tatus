@@ -1,0 +1,19 @@
+warning: in the working copy of 'package.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/chiefScreen.test.mjs', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/timerRelay.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/timing/RelayTimingScreen.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/timing/TimerHistory.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/timing/localCapture.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/features/timing/useLocalCaptures.ts', LF will be replaced by CRLF the next time Git touches it
+ package.json                              |   2 [32m+[m[31m-[m
+ server/chiefScreen.test.mjs               | 120 [32m++++++++++++++++++++++++++++[m[31m--[m
+ server/timerRelay.ts                      |  91 [32m++++++++++++++++++++[m[31m--[m
+ src/features/events/TimingOnlyScreen.tsx  |   4 [32m+[m[31m-[m
+ src/features/timing/RelayTimingScreen.tsx |  40 [32m++++++[m[31m----[m
+ src/features/timing/TimerHistory.tsx      |   5 [32m+[m[31m-[m
+ src/features/timing/localCapture.ts       |  36 [32m++++++++[m[31m-[m
+ src/features/timing/relayProtocol.ts      |   6 [32m+[m[31m-[m
+ src/features/timing/timerExports.ts       |  15 [32m++[m[31m--[m
+ src/features/timing/timerOnly.ts          |   4 [32m+[m[31m-[m
+ src/features/timing/useLocalCaptures.ts   |  33 [32m+++++++[m[31m-[m
+ 11 files changed, 305 insertions(+), 51 deletions(-)

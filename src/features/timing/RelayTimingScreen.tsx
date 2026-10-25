@@ -11,6 +11,8 @@ import { timerRequest, useTimerRelay } from './useTimerRelay';
 import { useLocalCaptures } from './useLocalCaptures';
 import { timingJoinUrl } from './relayUrls';
 import TimerHistory from './TimerHistory';
+import VolunteerMeasurement from './VolunteerMeasurement';
+import { chiefFallbackRace } from './localCapture';
 import '../events/TimingOnlyScreen.css';
 
 const CHIEF_KEY = 'timer-only-chief';
@@ -51,7 +53,7 @@ export default function RelayTimingScreen({ volunteer = false }: { volunteer?: b
     const latestId = confirmed[confirmed.length - 1].id;
     try {
       const local = localSession();
-      const missing = confirmed.some(r => !local.history.some(c => c.id === r.id));
+      const missing = confirmed.some(r => JSON.stringify(local.history.find(c => c.id === r.id)) !== JSON.stringify(r));
       const merged = missing ? mergeConfirmedHistory(local, confirmed) : local;
       if (missing) localStorage.setItem(TIMER_ONLY_KEY, JSON.stringify(merged));
       setHistory(merged.history); setSavedRaceId(latestId);
@@ -105,10 +107,10 @@ export default function RelayTimingScreen({ volunteer = false }: { volunteer?: b
   }
   async function fallback() {
     if (local.interrupted && race?.state === 'running') { setMessage('Clock continuity is lost. Reset the attempt or use independent manual results before fallback.'); return; }
-    if (!window.confirm('Switch to Chief-only timing? Volunteers must stop using this session. Official times will be kept and a running clock will continue on this device.')) return;
+    if (!window.confirm('Switch to Chief-only timing? Volunteers must stop using this session. Independent Chief captures replace volunteer selections where available; disputed selections without a Chief capture become unresolved. Confirmed history is retained.')) return;
     try {
       const local = localSession();
-      const fallbackRace: TimerRace = race ? { ...race, id: timerId(), elapsed: Math.round(elapsed), startedAt: race.startedAt === null ? null : localRaceNow() - elapsed } : local.current;
+      const fallbackRace: TimerRace = race ? chiefFallbackRace(race, timerId(), elapsed, localRaceNow()) : local.current;
       // Keep confirmed IDs intact so history and the current locked race remain the same record.
       if (race?.state === 'confirmed') fallbackRace.id = race.id;
       const confirmed = state?.history ?? [];
@@ -136,7 +138,7 @@ export default function RelayTimingScreen({ volunteer = false }: { volunteer?: b
 
   return <main className="timer-only"><div className="timer-shell">
     <Link to={volunteer ? '/' : '/timing'}>{volunteer ? 'Home' : 'Single-device Timing Only'}</Link>
-    <header><p>RACEFLOW - BUILD 019 - LOCAL CAPTURE</p><h1>{volunteer ? 'Lane Timekeeper' : 'Multi-device Timer Only'}</h1>
+    <header><p>RACEFLOW - BUILD 020 - VOLUNTEER RECONCILIATION</p><h1>{volunteer ? 'Lane Timekeeper' : 'Multi-device Timer Only'}</h1>
       <p>{volunteer ? 'Keep this screen awake. One submission per volunteer per race.' : 'No student names. Confirmed results stay in this browser.'}</p></header>
     {message && <p className="timer-notice" role="status">{message}</p>}
     {!credentials ? <section className="timer-panel">
@@ -150,14 +152,16 @@ export default function RelayTimingScreen({ volunteer = false }: { volunteer?: b
     </section> : <>
       <aside className={`timer-panel relay-connection ${relay.connected && relay.chiefConnected ? 'is-connected' : ''}`} role="status">
         <strong>{!relay.connected && !navigator.onLine ? 'Disconnected - device reports offline' : !relay.connected ? 'Disconnected / reconnecting to relay' : !relay.chiefConnected ? 'Chief disconnected - waiting for reconnection' : 'Connected to timing relay'}</strong>
-        <p>Finish capture is local and does not wait for clock sync or upload acknowledgements. Volunteer measurements remain Pending verification in Stage 1.</p>
-        <p>{relay.synchronised ? `Clock sample uncertainty about ±${Math.ceil(relay.uncertainty ?? 0)} ms (network estimate only).` : 'Clock alignment is insufficient. Local capture remains available; volunteer elapsed times are not verified.'}</p>
+        <p>Finish capture is local and does not wait for clock sync or upload acknowledgements. Volunteer measurements require authenticated clock evidence before official selection.</p>
+        <p>{relay.synchronised ? `Legacy display clock uncertainty about ±${Math.ceil(relay.uncertainty ?? 0)} ms (not volunteer verification evidence).` : 'Clock alignment is insufficient. This is the legacy display estimate; it does not determine volunteer verification. Local capture remains available.'}</p>
+        <p>{local.clockStatus}</p>
+        <p>Verified means within the 100 ms total clock policy under stated assumptions. Physical timing accuracy is not validated.</p>
         <details className="relay-diagnostics"><summary>Connection and clock diagnostics</summary>
           <p>Connection: {relay.connected ? 'Connected' : 'Disconnected / reconnecting'}. Last successful response: {metric(relay.diagnostics.lastSuccessAge)} ago.</p>
           <p>Latest round trip: {metric(relay.diagnostics.latestRoundTrip)}. Latest sample age: {metric(relay.diagnostics.latestSampleAge)}.</p>
           <p>Selected sample age: {metric(relay.diagnostics.sampleAge)}. Selected network uncertainty: {metric(relay.diagnostics.selectedUncertainty)}. Active clock uncertainty including drift: {metric(relay.uncertainty)}.</p>
           <p>Frozen race clock age: {metric(relay.diagnostics.raceClockAge)}. Relay minus browser clock offset: {metric(relay.diagnostics.offset)} (different monotonic origins are normal).</p>
-          <p>Clock evidence only: {relay.syncDisabledReason || 'A clock sample is available; Stage 1 still does not verify volunteer elapsed times.'}</p>
+          <p>Clock evidence only: {relay.syncDisabledReason || 'Legacy display clock sample available; volunteer verification uses the separate four-timestamp protocol.'}</p>
           {!volunteer && <p>Start: {startReason || 'Ready. Original Chief local tap; no relay timestamp substitution.'}</p>}
           <p>Polling waits 750 ms after each request. Samples expire after 15 seconds; connection freshness is 3 seconds. Round trip includes network, possible CORS preflight, server work and browser processing.</p>
         </details>
@@ -169,7 +173,7 @@ export default function RelayTimingScreen({ volunteer = false }: { volunteer?: b
         <details><summary>Capture delivery ({local.records.length} records)</summary>
           <p>Received means relay acknowledgement, not verified timing. Keep this page open when local saving fails.</p>
           <p>Showing the last 20 records. The raw archive includes all retained local records and received Chief Start references.</p>
-          {local.records.slice(-20).map(r => <p key={r.capture.id}>Attempt {r.capture.raceId.slice(0, 8)} - {r.capture.kind}{r.capture.lane ? ' Lane ' + r.capture.lane : ''}: Captured{r.delivery !== 'captured' ? ' / Saved locally' : ' (memory only)'}{r.delivery === 'received' ? ' / Received' : ''} - {r.capture.kind === 'finish' && volunteer ? 'Pending verification' : 'Chief local record; accuracy not certified'}. {r.delivery === 'rejected' ? 'Upload rejected; retained locally. ' : ''}{r.error}</p>)}
+          {local.records.slice(-20).map(r => <p key={r.capture.id}>Attempt {r.capture.raceId.slice(0, 8)} - {r.capture.kind}{r.capture.lane ? ' Lane ' + r.capture.lane : ''}: Captured{r.delivery !== 'captured' ? ' / Saved locally' : ' (memory only)'}{r.delivery === 'received' ? ' / Received' : ''} - {r.capture.kind === 'finish' && volunteer ? 'Check received reconciliation below; local capture is not proof of verification' : 'Chief local record; accuracy not certified'}. {r.delivery === 'rejected' ? 'Upload rejected; retained locally. ' : ''}{r.error}</p>)}
         </details>
         {relay.pending && <><p>Unverified action awaiting relay acknowledgement. This is not an official result. {relay.pending.milliseconds != null ? `Captured ${formatTime(relay.pending.milliseconds)}.` : ''} Retry sends the same action, never a new finish time.</p><button disabled={relay.busy || !relay.connected} onClick={() => void relay.retry()}>Retry acknowledgement</button></>}
         {!volunteer && <button disabled={relay.busy} onClick={() => { if (window.confirm('Forget this session on this phone? Saved confirmed results remain.')) { localStorage.removeItem(storageKey); sessionStorage.removeItem(storageKey); window.location.reload(); } }}>Forget session / create a new one</button>}
@@ -189,15 +193,15 @@ export default function RelayTimingScreen({ volunteer = false }: { volunteer?: b
       {race && <>
         <section className="timer-panel"><div className="timer-heading"><h2>Race {race.number}{self ? ` · Lane ${self.lane}` : ''}</h2><strong>{locked ? 'Confirmed & locked' : race.state}</strong></div>
           {race.startReference === 'relay' && <p className="timer-notice">Internet test: elapsed times use relay receipt as the start reference. Unknown start delivery delay is excluded from the clock uncertainty estimate; these are not verified physical-start race durations.</p>}
-          {race.chiefStart && <p>Chief original Start reference: {race.chiefStart.id.slice(0, 12)}. Volunteer timestamps will be reconciled against this record, never message arrival.</p>}
-          <div className="standalone-clock" role="timer">{volunteer ? 'Pending verification' : local.interrupted ? 'Clock interrupted' : formatTime(elapsed)}</div>
+          {race.chiefStart && <p>Chief original Start reference: {race.chiefStart.id.slice(0, 12)}. Volunteer timestamps are reconciled against this record, never message arrival.</p>}
+          <div className="standalone-clock" role="timer">{volunteer ? 'Volunteer result below' : local.interrupted ? 'Clock interrupted' : formatTime(elapsed)}</div>
           {volunteer ? <>
-            {capturedFinish || remoteFinish ? <p role="status">Finish captured{capturedFinish ? (capturedFinish.delivery !== 'captured' ? ' / Saved locally' : ' (memory only)') : ''}{remoteFinish || capturedFinish?.delivery === 'received' ? ' / Received by relay' : ''}. Pending verification - no verified elapsed time is available in Stage 1. Stay here for Next Race.</p> : submission ? <p role="status">Received by Chief: {submission.milliseconds === null ? submission.status : formatTime(submission.milliseconds)}. Waiting for official selection. Stay here for Next Race.</p> : <>
+            {capturedFinish || remoteFinish ? <div role="status">Finish captured{capturedFinish ? (capturedFinish.delivery !== 'captured' ? ' / Saved locally' : ' (memory only)') : ''}{remoteFinish || capturedFinish?.delivery === 'received' ? ' / Received by relay' : ''}. <VolunteerMeasurement result={remoteFinish?.reconciliation} /> Stay here for Next Race.</div> : submission ? <p role="status">Received by Chief: {submission.milliseconds === null ? submission.status : formatTime(submission.milliseconds)}. Waiting for official selection. Stay here for Next Race.</p> : <>
               <button className="primary lane-finish relay-big-finish" disabled={!self || !['ready', 'running'].includes(race.state) || Boolean(local.journal?.loadFailed)} onClick={() => self && local.capture('finish', self.lane, relay.clockEvidence)}>Finish · Lane {self?.lane ?? '?'}</button>
               <p>Armed for attempt {race.id.slice(0, 8)}. Tap only at the finish. If Start is delayed, the capture stays on this displayed attempt; it is never silently moved.</p>
               <div className="timer-controls">{(['DNS', 'DNF', 'DQ'] as const).map(s => <button key={s} disabled={disabled || locked || !self || (s === 'DNF' && race.state === 'ready')} onClick={() => { if (self && window.confirm(`Submit ${s} for Lane ${self.lane}? Ask the Chief for any later correction.`)) void relay.command('submit', { lane: self.lane, milliseconds: null, status: s }); }}>{s}</button>)}</div>
             </>}
-            <p>Chief-selected official result (separate from this unverified capture): {self ? (() => { const l = race.lanes[self.lane - 1]; return l.status || (l.milliseconds === null ? 'Awaiting Chief selection' : formatTime(l.milliseconds)); })() : 'Waiting for assignment'}</p>
+            <p>Chief-selected official result (separate from capture receipt and verification): {self ? (() => { const l = race.lanes[self.lane - 1]; return l.status || (l.milliseconds === null ? 'Awaiting Chief selection' : formatTime(l.milliseconds)); })() : 'Waiting for assignment'}</p>
           </> : <div className="timer-controls">
             <p>Press Start once at the physical starter signal. Each Chief lane finish is captured locally and independently.</p>
             <button className="primary" disabled={Boolean(startReason)} onClick={() => local.capture('start', undefined, relay.clockEvidence)}>Chief Start (physical signal)</button>
@@ -214,14 +218,20 @@ export default function RelayTimingScreen({ volunteer = false }: { volunteer?: b
           <button disabled={disabled || local.unsent || locked} onClick={() => { setEditing(l); setTime(l.milliseconds === null ? '' : formatTime(l.milliseconds)); setStatus(l.status); setCorrectionError(''); }}>Correct official time / status</button>
           {l.timingSource === 'chief-local' && <small>Chief local elapsed time - not dependent on relay delivery.</small>}
           <h4>Volunteer submissions</h4>
-          {state?.captures?.filter(c => c.source === 'lane' && c.kind === 'finish' && c.lane === l.lane).map(c => <p className="relay-candidate" key={c.id}>Volunteer {(state?.volunteers.findIndex(v => v.id === c.volunteerId) ?? -1) + 1}: Received / Pending verification. Raw local timestamp retained; no verified race duration. Official selection is unavailable until reconciliation is implemented.</p>)}
+          {l.chiefLocalMilliseconds != null && <small>Independent Chief local fallback: {formatTime(l.chiefLocalMilliseconds)}</small>}
+          {l.reconciliation && <p>{l.reviewRequired ? 'Official selection needs verification review. Time is unchanged; reselect or correct before locking, or audit this locked result.' : `Official selection: clock-policy verified at selection, +/-${Math.ceil(l.reconciliation.uncertainty ?? 0)} ms. Original selection evidence retained.`}</p>}
+          {state?.captures?.filter(c => c.source === 'lane' && c.kind === 'finish' && c.lane === l.lane).map(c => <div className="relay-candidate" key={c.id}>
+            <p>Volunteer {(state?.volunteers.findIndex(v => v.id === c.volunteerId) ?? -1) + 1}: Received by relay. Raw timestamp retained.</p>
+            <VolunteerMeasurement result={c.reconciliation} />
+            <button disabled={disabled || local.unsent || locked || c.verification !== 'verified'} onClick={() => void relay.command('selectCapture', { lane: l.lane, submissionId: c.id, reconciliationId: c.reconciliation?.id })}>Use verified time as official</button>
+          </div>)}
           {state?.submissions.filter(s => s.lane === l.lane).map(s => <div className="relay-candidate" key={s.id}>
             <span>Volunteer {state.volunteers.findIndex(v => v.id === s.volunteerId) + 1}: {s.milliseconds === null ? s.status : formatTime(s.milliseconds)}{s.milliseconds !== null ? ` (±${Math.ceil(s.uncertainty)} ms network estimate)` : ''}</span>
             <button disabled={disabled || locked} onClick={() => void relay.command('select', { lane: l.lane, submissionId: s.id })}>Use as official</button>
           </div>)}
         </article>)}</section>
-        <section className="timer-panel"><p>Volunteer raw captures remain Pending verification and cannot be selected as official in Stage 1. Review Chief local times or enter manual corrections/statuses, then confirm.</p><div className="timer-controls">
-          <button className="primary" disabled={disabled || local.unsent || locked || race.state === 'running' || !complete(race)} onClick={() => void confirm()}>Confirm & lock results</button>
+        <section className="timer-panel"><p>Only clock-policy verified volunteer times can be selected as official. Chief local captures and manual corrections remain independent alternatives. Review selected evidence before locking.</p><div className="timer-controls">
+          <button className="primary" disabled={disabled || local.unsent || locked || race.state === 'running' || !complete(race) || race.lanes.some(l => l.reviewRequired)} onClick={() => void confirm()}>Confirm & lock results</button>
           <button disabled={disabled || local.unsent || !locked || savedRaceId !== race.id} onClick={() => void relay.command('next')}>Next Race</button>
           {locked && savedRaceId !== race.id && <p>Waiting for local saving. Retrying automatically.</p>}
         </div></section></>}

@@ -64,13 +64,13 @@ export default function TimingOnlyScreen() {
     }
     const current = sessionRef.current.current;
     if (current.state === 'confirmed' || current.state === 'running') return;
-    update({ ...current, lanes: current.lanes.map(l => l.lane === editing ? { ...l, milliseconds: status === 'DNS' || status === 'DNF' ? null : milliseconds, status, corrected: true } : l) });
+    update({ ...current, lanes: current.lanes.map(l => l.lane === editing ? { ...l, milliseconds: status === 'DNS' || status === 'DNF' ? null : milliseconds, status, corrected: true, timingSource: 'manual' as const, reconciliation: undefined, reviewRequired: undefined } : l) });
     setEditing(null);
   }
   function laneStatus(lane: number, value: ResultStatus) {
     const current = sessionRef.current.current;
     if (current.state === 'confirmed') return;
-    const next: TimerRace = { ...current, lanes: current.lanes.map(l => l.lane === lane ? { ...l, status: value, milliseconds: value === 'DNS' || value === 'DNF' ? null : l.milliseconds } : l) };
+    const next: TimerRace = { ...current, lanes: current.lanes.map(l => l.lane === lane ? { ...l, status: value, milliseconds: value === 'DNS' || value === 'DNF' ? null : l.milliseconds, timingSource: 'manual' as const, reconciliation: undefined, reviewRequired: undefined } : l) };
     if (next.state === 'running' && complete(next)) { next.state = 'stopped'; next.elapsed = Math.max(0, localRaceNow() - next.startedAt!); }
     update(next);
   }
