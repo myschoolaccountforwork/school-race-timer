@@ -4,6 +4,7 @@ export interface TimerRace {
   id: string; number: number; laneCount: number;
   state: 'ready' | 'running' | 'stopped' | 'confirmed';
   startedAt: number | null; elapsed: number; lanes: TimerLane[]; confirmedAt?: string;
+  startReference?: 'relay' | 'tap';
 }
 export interface TimerSession { current: TimerRace; history: TimerRace[] }
 export const TIMER_ONLY_KEY = 'raceflow.timerOnly.v1';

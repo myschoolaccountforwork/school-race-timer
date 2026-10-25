@@ -41,12 +41,15 @@ test('standalone production service: CORS, eight lanes, reconnect, permissions a
   let raceId = (await state(chief)).body.race.id;
   const command = (who, action, details = {}) => request('/api/timer/command', { sessionId: chief.sessionId,
     command: { id: randomUUID(), raceId, action, ...details } }, who.token);
-  for (const action of ['start', 'reset', 'falseStart', 'stop', 'stopLane', 'stopAll', 'correct', 'select', 'confirm', 'next']) {
+  for (const action of ['start', 'startRelay', 'reset', 'falseStart', 'stop', 'stopLane', 'stopAll', 'correct', 'select', 'confirm', 'next']) {
     assert.equal((await command(volunteers[0], action)).status, 403);
   }
   assert.equal((await request('/api/timer/close', { sessionId: chief.sessionId }, volunteers[0].token)).status, 403);
   assert.equal((await state({ token: chief.joinToken })).status, 403);
-  assert.equal((await command(chief, 'start', { at: now, uncertainty: 1 })).status, 200);
+  const started = await command(chief, 'startRelay');
+  assert.equal(started.status, 200);
+  assert.equal(started.body.race.startedAt, now);
+  assert.equal(started.body.race.startReference, 'relay');
   now += 1000;
   for (const [index, who] of volunteers.entries()) {
     assert.equal((await command(who, 'submit', { lane: index === 2 ? 2 : 1, milliseconds: 990 + index, status: '', uncertainty: 2 })).status, 200);
@@ -56,6 +59,7 @@ test('standalone production service: CORS, eight lanes, reconnect, permissions a
   assert.equal(before.race.lanes[0].milliseconds, null);
   assert.equal((await command(chief, 'stopAll', { at: now, uncertainty: 1 })).status, 200);
   assert.equal((await command(chief, 'confirm')).status, 200);
+  assert.equal((await state(chief)).body.history[0].startReference, 'relay');
   now += 10000; // Chief app switch: resume with the same stored bearer credential.
   assert.equal((await state(chief)).body.race.state, 'confirmed');
   assert.equal((await command(chief, 'next')).status, 200);

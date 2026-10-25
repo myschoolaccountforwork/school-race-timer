@@ -11,7 +11,7 @@ export interface RelaySnapshot {
   history: TimerRace[]; selfId?: string;
 }
 export interface RelayCommand {
-  id: string; raceId: string; action: 'start' | 'stop' | 'stopLane' | 'stopAll' | 'reset' | 'falseStart' | 'correct' | 'select' | 'confirm' | 'next' | 'submit';
+  id: string; raceId: string; action: 'start' | 'startRelay' | 'stop' | 'stopLane' | 'stopAll' | 'reset' | 'falseStart' | 'correct' | 'select' | 'confirm' | 'next' | 'submit';
   lane?: number; milliseconds?: number | null; status?: ResultStatus; at?: number;
   submissionId?: string; uncertainty?: number;
 }

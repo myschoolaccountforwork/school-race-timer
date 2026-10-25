@@ -13,6 +13,7 @@ export default function TimerHistory({ races }: { races: TimerRace[] }) {
     {error && <p role="alert">{error}</p>}
     <div className="timer-controls">{(['csv', 'xlsx', 'pdf'] as const).map(f => <button key={f} disabled={!races.length} onClick={() => download(f)}>Export all · {f.toUpperCase()}</button>)}</div>
     {[...races].reverse().map(r => <details key={r.id}><summary>Race {r.number} · {r.laneCount} lanes · {new Date(r.confirmedAt!).toLocaleString()}</summary>
+      {r.startReference === 'relay' && <p className="timer-notice">Internet test: start recorded on relay receipt. Unknown delivery delay prevents verifying physical-start race duration.</p>}
       <ul>{r.lanes.map(l => <li key={l.lane}>Lane {l.lane}: {l.milliseconds === null ? '—' : formatTime(l.milliseconds)} {l.status} {positions(r.lanes)[l.lane] ? `· Place ${positions(r.lanes)[l.lane]}` : ''}</li>)}</ul>
       <div className="timer-controls">{(['csv', 'xlsx', 'pdf'] as const).map(f => <button key={f} onClick={() => download(f, [r])}>{f.toUpperCase()}</button>)}</div>
     </details>)}

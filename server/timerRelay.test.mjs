@@ -3,7 +3,8 @@ import test from 'node:test';
 import { createServer } from 'node:http';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { TimerRelay, timerRelayMiddleware } from './timerRelay.ts';
-import { bestClock, clockSample, serverTimeAt } from '../src/features/timing/relayClock.ts';
+import { bestClock, clockSample, serverTimeAt, clockUncertainty, clockReadiness } from '../src/features/timing/relayClock.ts';
+import { startDisabledReason } from '../src/features/timing/relayReadiness.ts';
 
 function fixture(lanes = 2) {
   let now = 1000;
@@ -28,6 +29,54 @@ test('clock midpoint accounts for transit; samples expire and lowest round trip 
   // A different phone's monotonic origin can be entirely unrelated.
   const phone = clockSample(100000, 100020, 1410);
   assert.equal(serverTimeAt(phone, 100110), 1510);
+});
+
+test('hosted 400 ms round trips stay unsafe for finishes but no longer block relay-receipt start', () => {
+  // A browser and relay have unrelated monotonic origins; map via midpoint.
+  const samples = Array.from({ length: 30 }, (_, i) => clockSample(100000 + i * 1150, 100400 + i * 1150, 9000000 + i * 1150));
+  const now = 100400 + 29 * 1150;
+  const sample = bestClock(samples, now);
+  assert.equal(sample.uncertainty, 200);
+  assert.match(clockReadiness(true, sample, sample, now), /exceeds 100 ms/);
+  assert.equal(serverTimeAt(samples[0], 100200), 9000000);
+  const f = fixture();
+  const readiness = { role: 'chief', connected: true, chiefConnected: true, busy: false, pending: false, race: f.snapshot(f.chief).race, synchronised: false };
+  assert.match(startDisabledReason({ ...readiness, reference: 'tap' }), /requires a fresh clock/);
+  assert.equal(startDisabledReason({ ...readiness, reference: 'relay' }), '');
+  assert.match(startDisabledReason({ ...readiness, reference: 'relay', connected: false }), /connection/);
+  assert.match(startDisabledReason({ ...readiness, reference: 'relay', pending: true }), /acknowledged/);
+  assert.match(startDisabledReason({ ...readiness, reference: 'relay', role: 'lane' }), /Only the Chief/);
+  const a = f.join(1);
+  assert.throws(() => f.command(f.chief, 'start', { uncertainty: 200 }), /synchronised/);
+  assert.throws(() => f.command(a, 'startRelay'), /Only the Chief/);
+  assert.throws(() => f.command(f.chief, 'startRelay', { at: 1, uncertainty: 0 }), /must not supply/);
+  f.advance(500); // Unknown delivery delay: use receipt, never pretend this was the tap.
+  const id = randomUUID();
+  f.command(f.chief, 'startRelay', { id });
+  assert.equal(f.snapshot(f.chief).race.startedAt, 1500);
+  assert.equal(f.snapshot(f.chief).race.startReference, 'relay');
+  f.advance(1000);
+  f.command(f.chief, 'startRelay', { id });
+  assert.equal(f.snapshot(f.chief).race.startedAt, 1500); // lost acknowledgement retry
+  assert.throws(() => f.command(a, 'submit', { lane: 1, milliseconds: 1000, status: '', uncertainty: 200 }), /uncertain/);
+  assert.throws(() => f.command(f.chief, 'stopLane', { lane: 1, uncertainty: 200 }), /synchronised/);
+  assert.equal(f.snapshot(f.chief).race.lanes[0].milliseconds, null);
+  f.command(a, 'submit', { lane: 1, milliseconds: 990, status: '', uncertainty: 5 });
+  assert.equal(f.snapshot(f.chief).submissions[0].milliseconds, 990);
+  assert.equal(f.snapshot(f.chief).race.lanes[0].milliseconds, null);
+});
+
+test('clock diagnostics distinguish stale, invalid and frozen-drift samples without relaxing safety', () => {
+  for (const args of [[NaN, 20, 10], [20, 10, 10], [10, 20, Infinity]]) assert.throws(() => clockSample(...args), /Invalid relay clock/);
+  const sample = clockSample(0, 100, 500000);
+  assert.equal(clockReadiness(true, sample, sample, 100), '');
+  assert.match(clockReadiness(false, sample, sample, 100), /connection/);
+  assert.match(clockReadiness(true, bestClock([sample], 16000), sample, 16000), /15 seconds/);
+  assert.equal(bestClock([{ ...sample, serverTime: NaN }], 100), null);
+  assert.equal(bestClock([sample], 0), null);
+  assert.ok(clockUncertainty(sample, 600000) > 100);
+  const fresh = clockSample(599900, 600000, 1100000);
+  assert.match(clockReadiness(true, fresh, sample, 600000), /including drift/);
 });
 test('several volunteers may share a lane; Chief selects one official result', () => {
   const f = fixture(); const a = f.join(1); const b = f.join(1);

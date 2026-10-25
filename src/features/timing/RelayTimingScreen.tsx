@@ -8,6 +8,7 @@ import { readStorage } from './timingStorage';
 import { timerId } from './timerId';
 import { localRaceNow } from './localClock';
 import { timerRequest, useTimerRelay } from './useTimerRelay';
+import { startDisabledReason } from './relayReadiness';
 import { timingJoinUrl } from './relayUrls';
 import TimerHistory from './TimerHistory';
 import '../events/TimingOnlyScreen.css';
@@ -44,6 +45,7 @@ export default function RelayTimingScreen({ volunteer = false }: { volunteer?: b
   const [status, setStatus] = useState<ResultStatus>('');
   const [correctionError, setCorrectionError] = useState('');
   const [showQr, setShowQr] = useState(false);
+  const [startReference, setStartReference] = useState<'relay' | 'tap'>('relay');
   const saveHistory = useCallback((snapshot: RelaySnapshot) => {
     if (volunteer || !snapshot.history.length) return;
     const confirmed = snapshot.history;
@@ -67,6 +69,10 @@ export default function RelayTimingScreen({ volunteer = false }: { volunteer?: b
   const locked = race?.state === 'confirmed';
   const joinUrl = credentials?.joinToken ? timingJoinUrl(credentials.sessionId, credentials.joinToken) : '';
   const places = race ? positions(race.lanes) : {};
+  const startReason = startDisabledReason({ role: credentials?.role, connected: relay.connected,
+    chiefConnected: relay.chiefConnected, busy: relay.busy, pending: Boolean(relay.pending),
+    race: race ?? null, synchronised: relay.synchronised, reference: startReference });
+  const metric = (value: number | undefined) => value === undefined ? 'No sample' : Math.round(value).toLocaleString() + ' ms';
 
   useEffect(() => {
     if (!volunteer || credentials || !sessionId || !joinToken) return;
@@ -127,7 +133,7 @@ export default function RelayTimingScreen({ volunteer = false }: { volunteer?: b
 
   return <main className="timer-only"><div className="timer-shell">
     <Link to={volunteer ? '/' : '/timing'}>{volunteer ? 'Home' : 'Single-device Timing Only'}</Link>
-    <header><p>RACEFLOW · BUILD 017 · LOCAL RELAY PILOT</p><h1>{volunteer ? 'Lane Timekeeper' : 'Multi-device Timer Only'}</h1>
+    <header><p>RACEFLOW - BUILD 018 - CLOCK FIX</p><h1>{volunteer ? 'Lane Timekeeper' : 'Multi-device Timer Only'}</h1>
       <p>{volunteer ? 'Keep this screen awake. One submission per volunteer per race.' : 'No student names. Confirmed results stay in this browser.'}</p></header>
     {message && <p className="timer-notice" role="status">{message}</p>}
     {!credentials ? <section className="timer-panel">
@@ -142,6 +148,16 @@ export default function RelayTimingScreen({ volunteer = false }: { volunteer?: b
       <aside className={`timer-panel relay-connection ${relay.connected && relay.chiefConnected ? 'is-connected' : ''}`} role="status">
         <strong>{!relay.connected && !navigator.onLine ? 'Disconnected - device reports offline' : !relay.connected ? 'Disconnected / reconnecting to relay' : !relay.chiefConnected ? 'Chief disconnected - waiting for reconnection' : 'Connected to timing relay'}</strong>
         <p>{relay.synchronised ? `Clock sample uncertainty about ±${Math.ceil(relay.uncertainty ?? 0)} ms (network estimate only).` : 'Synchronising clock - Finish is unavailable until a fresh, low-delay sample arrives.'}</p>
+        <details className="relay-diagnostics"><summary>Connection and clock diagnostics</summary>
+          <p>Connection: {relay.connected ? 'Connected' : 'Disconnected / reconnecting'}. Last successful response: {metric(relay.diagnostics.lastSuccessAge)} ago.</p>
+          <p>Latest round trip: {metric(relay.diagnostics.latestRoundTrip)}. Latest sample age: {metric(relay.diagnostics.latestSampleAge)}.</p>
+          <p>Selected sample age: {metric(relay.diagnostics.sampleAge)}. Selected network uncertainty: {metric(relay.diagnostics.selectedUncertainty)}. Active clock uncertainty including drift: {metric(relay.uncertainty)}.</p>
+          <p>Frozen race clock age: {metric(relay.diagnostics.raceClockAge)}. Relay minus browser clock offset: {metric(relay.diagnostics.offset)} (different monotonic origins are normal).</p>
+          <p>Finish clock: {relay.syncDisabledReason || 'Ready within the unchanged 100 ms clock limit.'}</p>
+          {!volunteer && <p>Start: {startReason || (startReference === 'relay' ? 'Ready. Relay records its own receipt time; no client clock needed.' : 'Ready using synchronised Chief tap time.')}</p>}
+          <p>Polling waits 750 ms after each request. Samples expire after 15 seconds; connection freshness is 3 seconds. Round trip includes network, possible CORS preflight, server work and browser processing.</p>
+        </details>
+        {!volunteer && <p role="status">Start: {startReason || 'Ready (' + (startReference === 'relay' ? 'relay receipt' : 'Chief tap') + ').'}</p>}
         {relay.error && <p>{relay.error}</p>}
         {relay.pending && <><p>Unverified action awaiting relay acknowledgement. This is not an official result. {relay.pending.milliseconds != null ? `Captured ${formatTime(relay.pending.milliseconds)}.` : ''} Retry sends the same action, never a new finish time.</p><button disabled={relay.busy || !relay.connected} onClick={() => void relay.retry()}>Retry acknowledgement</button></>}
         {!volunteer && <button disabled={relay.busy} onClick={() => { if (window.confirm('Forget this session on this phone? Saved confirmed results remain.')) { localStorage.removeItem(storageKey); sessionStorage.removeItem(storageKey); window.location.reload(); } }}>Forget session / create a new one</button>}
@@ -160,6 +176,7 @@ export default function RelayTimingScreen({ volunteer = false }: { volunteer?: b
       </section>}
       {race && <>
         <section className="timer-panel"><div className="timer-heading"><h2>Race {race.number}{self ? ` · Lane ${self.lane}` : ''}</h2><strong>{locked ? 'Confirmed & locked' : race.state}</strong></div>
+          {race.startReference === 'relay' && <p className="timer-notice">Internet test: elapsed times use relay receipt as the start reference. Unknown start delivery delay is excluded from the clock uncertainty estimate; these are not verified physical-start race durations.</p>}
           <div className="standalone-clock" role="timer">{formatTime(volunteer && submission?.milliseconds != null ? submission.milliseconds : elapsed)}</div>
           {volunteer ? <>
             {submission ? <p role="status">Received by Chief: {submission.milliseconds === null ? submission.status : formatTime(submission.milliseconds)}. Waiting for official selection. Stay here for Next Race.</p> : <>
@@ -168,7 +185,9 @@ export default function RelayTimingScreen({ volunteer = false }: { volunteer?: b
             </>}
             <p>Official: {self ? (() => { const l = race.lanes[self.lane - 1]; return l.status || (l.milliseconds === null ? 'Awaiting Chief selection' : formatTime(l.milliseconds)); })() : 'Waiting for assignment'}</p>
           </> : <div className="timer-controls">
-            <button className="primary" disabled={disabled || !relay.synchronised || race.state !== 'ready' || complete(race)} onClick={() => void relay.command('start')}>Start</button>
+            <label>Start reference<select disabled={race.state !== 'ready' || relay.busy || Boolean(relay.pending)} value={startReference} onChange={e => setStartReference(e.target.value as 'relay' | 'tap')}><option value="relay">Relay receipt (internet test)</option><option value="tap">Chief tap (requires clock sync)</option></select></label>
+            <p>{startReference === 'relay' ? 'Relay receipt starts when the request reaches the server, after the tap. Network start delay is unknown and is not included in finish uncertainty. Use this for connection testing, not as an accurate capture of the physical starter.' : 'Chief tap captures the tap using a synchronised clock. Start and timed finishes require uncertainty at most 100 ms.'}</p>
+            <button className="primary" disabled={Boolean(startReason)} onClick={() => { if (startReference === 'tap' || window.confirm('Start on relay receipt for internet testing? This does not capture the physical starter or the Chief tap; unknown network delay changes measured race duration.')) void relay.command(startReference === 'relay' ? 'startRelay' : 'start'); }}>{startReference === 'relay' ? 'Start at relay' : 'Start at Chief tap'}</button>
             <button className="danger" disabled={disabled || !relay.synchronised || race.state !== 'running'} onClick={() => void relay.command('stop')}>Stop clock</button>
             <button disabled={disabled || !relay.synchronised || race.state !== 'running'} onClick={() => void relay.command('stopAll')}>Finish all unresolved lanes</button>
             <button disabled={disabled || locked} onClick={() => { if (window.confirm('Reset this race and clear all submissions?')) void relay.command('reset'); }}>Reset</button>

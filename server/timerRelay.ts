@@ -135,8 +135,10 @@ export class TimerRelay {
     const elapsed = () => Math.max(0, Math.round(eventTime - race.startedAt!));
     const lane = race.lanes.find(l => l.lane === c.lane);
     switch (c.action) {
-      case 'start':
+      case 'start': case 'startRelay':
         requireThat(race.state === 'ready' && !complete(race), 'Race is not ready to start.');
+        if (c.action === 'startRelay') requireThat(c.at === undefined && c.uncertainty === undefined, 'Relay start must not supply a client timestamp.', 400);
+        race.startReference = c.action === 'startRelay' ? 'relay' : 'tap';
         race.startedAt = eventTime; race.state = 'running'; break;
       case 'stop':
         requireThat(race.state === 'running', 'Race is not running.');
