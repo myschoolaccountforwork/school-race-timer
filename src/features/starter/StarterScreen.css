@@ -1,0 +1,166 @@
+.starter-page {
+  min-height: 100vh;
+  padding: 16px;
+  background: #f3f6fa;
+}
+
+.starter-shell {
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 22px;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+}
+
+.starter-header {
+  margin: 22px 0;
+}
+
+.starter-header p,
+.starter-order {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.starter-header h1,
+.starter-race h2 {
+  margin: 4px 0;
+}
+
+.starter-race {
+  padding: 18px;
+  border: 1px solid #dfe5ec;
+  border-radius: 14px;
+}
+
+.starter-order-list {
+  margin-bottom: 14px;
+  padding: 16px;
+  border: 1px solid #dfe5ec;
+  border-radius: 14px;
+}
+
+.starter-order-list h2 {
+  margin: 0 0 12px;
+}
+
+.starter-order-list ol {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.starter-order-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #f6f8fa;
+}
+
+.starter-order-list strong {
+  color: #5f6670;
+}
+
+.starter-race h3 {
+  margin: 4px 0 16px;
+  color: #5f6670;
+}
+
+.starter-live-confirmations {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 16px;
+  padding: 12px;
+  border-radius: 9px;
+  background: #f3f6fa;
+}
+
+.starter-live-confirmations span {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.starter-athletes {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.starter-athletes li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px;
+  border-radius: 8px;
+  background: #f6f8fa;
+}
+
+.starter-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.starter-actions button {
+  min-height: 58px;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.starter-confirm {
+  border: 0;
+  background: #16823b;
+  color: #fff;
+}
+
+.starter-confirm:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.starter-wrong {
+  border: 1px solid #c62828;
+  background: #fff;
+  color: #a51f1f;
+}
+
+.starter-wrong:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.starter-status {
+  padding: 12px;
+  border-radius: 8px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.starter-status-confirmed {
+  background: #e9f7ee;
+  color: #145d2d;
+}
+
+.starter-status-wrong-group {
+  background: #fdecec;
+  color: #a51f1f;
+}
+
+.starter-empty {
+  color: #5f6670;
+  text-align: center;
+}

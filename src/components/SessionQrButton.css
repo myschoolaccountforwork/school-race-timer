@@ -1,0 +1,50 @@
+.session-qr-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(15 23 42 / 68%);
+}
+
+.session-qr-panel {
+  position: relative;
+  width: min(100%, 22rem);
+  padding: 1.5rem;
+  border-radius: 1rem;
+  background: #fff;
+  color: #172033;
+  text-align: center;
+  box-shadow: 0 1.25rem 3rem rgb(15 23 42 / 25%);
+}
+
+.session-qr-panel svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto 1rem;
+}
+
+.session-qr-panel h2 {
+  margin: 0 0 0.35rem;
+}
+
+.session-qr-panel p {
+  margin: 0;
+}
+
+.session-qr-close {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.55rem;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: #edf1f7;
+  color: #172033;
+  font-size: 1.4rem;
+  line-height: 1;
+}

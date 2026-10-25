@@ -10,7 +10,7 @@ export default function AthleteEntryPlaceholder() {
           ← Event Control Centre
         </Link>
         <h1>Athlete Entry</h1>
-        <p>The Marshal 1 heat and lane entry screen will be built next.</p>
+        <p>The Chief Marshal heat and lane entry screen will be built next.</p>
       </section>
     </main>
   );

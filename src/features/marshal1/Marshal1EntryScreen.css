@@ -25,6 +25,12 @@
   gap: 16px;
 }
 
+.marshal-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
 .groups-button,
 .add-group-button {
   min-height: 44px;
@@ -75,6 +81,13 @@
 .group-queue-list {
   display: grid;
   gap: 8px;
+}
+
+.group-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+  font-weight: 800;
 }
 
 .group-queue-row {

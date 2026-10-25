@@ -1,0 +1,114 @@
+.lane-page {
+  min-height: 100vh;
+  padding: 24px;
+  background: #f3f6fa;
+}
+
+.lane-shell {
+  width: 100%;
+  max-width: 620px;
+  margin: 0 auto;
+  padding: 28px;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+}
+
+.lane-header {
+  margin: 24px 0;
+}
+
+.lane-header p {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.lane-header h1 {
+  margin: 4px 0 0;
+}
+
+.lane-race-card {
+  padding: 22px;
+  border: 1px solid #dfe5ec;
+  border-radius: 14px;
+}
+
+.lane-race-card h2 {
+  margin: 0 0 18px;
+}
+
+.lane-assignment {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px;
+  border-radius: 10px;
+  background: #eef5ff;
+}
+
+.lane-timer {
+  padding: 32px 8px 22px;
+  font-size: clamp(3.8rem, 18vw, 6.5rem);
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  letter-spacing: -0.05em;
+  line-height: 1;
+  text-align: center;
+}
+
+.lane-status,
+.lane-waiting {
+  color: #5f6670;
+  font-weight: 700;
+  text-align: center;
+}
+
+.lane-finish-button {
+  width: 100%;
+  min-height: 110px;
+  margin-top: 18px;
+  border: 0;
+  border-radius: 14px;
+  background: #16823b;
+  color: #fff;
+  font-size: 2rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.lane-status-actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.lane-status-actions button {
+  min-height: 58px;
+  border: 1px solid #b9c3cf;
+  border-radius: 10px;
+  background: #fff;
+  color: #1f2933;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.lane-finish-button:disabled,
+.lane-status-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+@media (max-width: 600px) {
+  .lane-page {
+    padding: 12px;
+  }
+
+  .lane-shell {
+    padding: 20px 14px;
+  }
+}

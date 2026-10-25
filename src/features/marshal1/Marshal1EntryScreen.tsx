@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, KeyboardEvent } from "react";
 import { Link } from "react-router-dom";
 import { AppRoute } from "../../types/routes";
+import LiveSessionStatus from "../../components/LiveSessionStatus";
+import SessionQrButton from "../../components/SessionQrButton";
 import type { Gender, TrackEventDraft } from "../../types/events";
 import "./Marshal1EntryScreen.css";
 
@@ -199,7 +201,7 @@ function getDisplayStatus(groupEntry: GroupEntry) {
   if (groupEntry.status === "completed") return "Completed";
   if (groupEntry.status === "confirmed") return "Confirmed";
   if (groupEntry.status === "returned") return "Returned";
-  if (groupEntry.status === "sent") return "Sent to Marshal 2";
+  if (groupEntry.status === "sent") return "Sent to Line Marshal";
   if (groupEntry.status === "skipped") return "No athletes";
   if (groupHasAthletes(groupEntry)) return "In progress";
 
@@ -225,10 +227,10 @@ function groupIsLocked(groupEntry: GroupEntry) {
 }
 
 function getPushButtonLabel(groupEntry: GroupEntry) {
-  if (groupEntry.status === "sent") return "Update Marshal 2";
-  if (groupEntry.status === "returned") return "Push Back To Marshal 2";
+  if (groupEntry.status === "sent") return "Update Line Marshal";
+  if (groupEntry.status === "returned") return "Push Back To Line Marshal";
 
-  return "Push To Marshal 2";
+  return "Push To Line Marshal";
 }
 
 function allGroupsPrepared(groups: GroupEntry[]) {
@@ -270,10 +272,28 @@ export default function Marshal1EntryScreen() {
     }
   }, [entryState]);
 
+  useEffect(() => {
+    function handleStorage(event: StorageEvent) {
+      if (event.key === EVENT_STORAGE_KEY) {
+        setTrackEvent(loadEvent());
+      }
+      if (event.key === ENTRY_STORAGE_KEY && event.newValue) {
+        try {
+          setEntryState(JSON.parse(event.newValue) as MarshalEntryState);
+        } catch {
+          // Ignore malformed remote state and retain the last valid snapshot.
+        }
+      }
+    }
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
+
   if (!trackEvent || !entryState || entryState.groups.length === 0) {
     return (
       <main className="marshal-page">
         <section className="marshal-shell marshal-empty">
+          <LiveSessionStatus />
           <h1>No Track Event Found</h1>
           <p>Create a Track Event before entering athletes.</p>
 
@@ -285,15 +305,19 @@ export default function Marshal1EntryScreen() {
     );
   }
 
+  const activeTrackEvent = trackEvent;
+  const activeEntryState = entryState;
   const safeGroupIndex = Math.min(
-    entryState.currentGroupIndex,
-    entryState.groups.length - 1,
+    activeEntryState.currentGroupIndex,
+    activeEntryState.groups.length - 1,
   );
 
-  const currentEntry = entryState.groups[safeGroupIndex];
-  const eventName = trackEvent.customEventName || trackEvent.eventName;
-  const laneCount = trackEvent.laneCount ?? 10;
-  const rowLabel = trackEvent.laneCount === null ? "Athlete" : "Lane";
+  const currentEntry = activeEntryState.groups[safeGroupIndex];
+  const eventName =
+    activeTrackEvent.customEventName || activeTrackEvent.eventName;
+  const laneCount = activeTrackEvent.laneCount ?? 10;
+  const rowLabel =
+    activeTrackEvent.laneCount === null ? "Athlete" : "Lane";
   const currentLocked = groupIsLocked(currentEntry);
 
   function showTemporaryMessage(text: string) {
@@ -413,7 +437,7 @@ export default function Marshal1EntryScreen() {
   }
 
   function openGroup(index: number) {
-    const selected = entryState.groups[index];
+    const selected = activeEntryState.groups[index];
 
     if (groupIsLocked(selected)) {
       showTemporaryMessage(
@@ -457,8 +481,8 @@ export default function Marshal1EntryScreen() {
 
     const hasAthletes = groupHasAthletes(currentEntry);
 
-    const updatedGroups = entryState.groups.map((groupEntry, groupIndex) =>
-      groupIndex === entryState.currentGroupIndex
+    const updatedGroups = activeEntryState.groups.map((groupEntry, groupIndex) =>
+      groupIndex === activeEntryState.currentGroupIndex
         ? {
             ...groupEntry,
             status: hasAthletes ? ("sent" as const) : ("skipped" as const),
@@ -470,13 +494,13 @@ export default function Marshal1EntryScreen() {
 
     const nextIndex = findNextDraftGroupIndex(
       updatedGroups,
-      entryState.currentGroupIndex,
+      activeEntryState.currentGroupIndex,
     );
 
     if (nextIndex === -1) {
       setEntryState({
-        eventCreatedAt: trackEvent.createdAt,
-        currentGroupIndex: entryState.currentGroupIndex,
+        eventCreatedAt: activeTrackEvent.createdAt,
+        currentGroupIndex: activeEntryState.currentGroupIndex,
         groups: updatedGroups,
       });
 
@@ -492,7 +516,7 @@ export default function Marshal1EntryScreen() {
     const nextGroup = updatedGroups[nextIndex].group;
 
     setEntryState({
-      eventCreatedAt: trackEvent.createdAt,
+      eventCreatedAt: activeTrackEvent.createdAt,
       currentGroupIndex: nextIndex,
       groups: updatedGroups,
     });
@@ -501,7 +525,7 @@ export default function Marshal1EntryScreen() {
       hasAthletes
         ? `${getAgeLabel(currentEntry.group.age)} ${getGenderLabel(
             currentEntry.group.gender,
-          )} sent to Marshal 2. Opening ${getAgeLabel(
+          )} sent to Line Marshal. Opening ${getAgeLabel(
             nextGroup.age,
           )} ${getGenderLabel(nextGroup.gender)}.`
         : `No athletes entered. Opening ${getAgeLabel(
@@ -513,7 +537,7 @@ export default function Marshal1EntryScreen() {
   }
 
   function combinationExists(age: string, gender: Gender) {
-    return entryState.groups.some(
+    return activeEntryState.groups.some(
       (entry) =>
         entry.group.age === age &&
         entry.group.gender === gender,
@@ -539,8 +563,8 @@ export default function Marshal1EntryScreen() {
     };
 
     const updatedGroups = sortGroupEntries(
-      [...entryState.groups, newEntry],
-      trackEvent,
+      [...activeEntryState.groups, newEntry],
+      activeTrackEvent,
     );
 
     const newIndex = updatedGroups.findIndex(
@@ -548,13 +572,13 @@ export default function Marshal1EntryScreen() {
     );
 
     const updatedEvent: TrackEventDraft = {
-      ...trackEvent,
-      ageGroups: trackEvent.ageGroups.includes(newAge)
-        ? trackEvent.ageGroups
-        : [...trackEvent.ageGroups, newAge],
-      genders: trackEvent.genders.includes(newGender)
-        ? trackEvent.genders
-        : [...trackEvent.genders, newGender],
+      ...activeTrackEvent,
+      ageGroups: activeTrackEvent.ageGroups.includes(newAge)
+        ? activeTrackEvent.ageGroups
+        : [...activeTrackEvent.ageGroups, newAge],
+      genders: activeTrackEvent.genders.includes(newGender)
+        ? activeTrackEvent.genders
+        : [...activeTrackEvent.genders, newGender],
     };
 
     localStorage.setItem(
@@ -564,7 +588,7 @@ export default function Marshal1EntryScreen() {
 
     setTrackEvent(updatedEvent);
     setEntryState({
-      ...entryState,
+      ...activeEntryState,
       currentGroupIndex: newIndex,
       groups: updatedGroups,
     });
@@ -586,11 +610,11 @@ export default function Marshal1EntryScreen() {
   function renderGroupList() {
     return (
       <div className="group-queue-list">
-        {entryState.groups.map((groupEntry, index) => (
+        {activeEntryState.groups.map((groupEntry, index) => (
           <button
             key={groupEntry.group.id}
             className={`group-queue-row ${
-              index === entryState.currentGroupIndex
+              index === activeEntryState.currentGroupIndex
                 ? "group-queue-current"
                 : ""
             }`}
@@ -617,24 +641,54 @@ export default function Marshal1EntryScreen() {
     return (
       <main className="marshal-page">
         <section className="marshal-shell marshal-dashboard">
+          <LiveSessionStatus />
           <div className="marshal-top-row">
             <Link className="back-link" to={AppRoute.TRACK_CONTROL}>
               ← Event Control
             </Link>
 
-            <button
-              className="add-group-button"
-              type="button"
-              onClick={() => setAddGroupOpen((open) => !open)}
-            >
-              + Add Group
-            </button>
+            <div className="marshal-top-actions">
+              <SessionQrButton className="groups-button" />
+              <button
+                className="add-group-button"
+                type="button"
+                onClick={() => setAddGroupOpen((open) => !open)}
+              >
+                + Add Group
+              </button>
+            </div>
           </div>
 
           <header className="marshal-header">
             <h1>{eventName}</h1>
-            <p>Marshal 1 Groups</p>
+            <p>Chief Marshal Groups</p>
           </header>
+
+          <section className="group-queue">
+            <h2>Live Event Status</h2>
+            <div className="group-summary">
+              <span>
+                Completed groups:{" "}
+                {
+                  activeEntryState.groups.filter(
+                    (group) =>
+                      group.status === "confirmed" ||
+                      group.status === "completed",
+                  ).length
+                }
+              </span>
+              <span>
+                Waiting groups:{" "}
+                {
+                  activeEntryState.groups.filter(
+                    (group) =>
+                      group.status !== "confirmed" &&
+                      group.status !== "completed",
+                  ).length
+                }
+              </span>
+            </div>
+          </section>
 
           {message && (
             <div className="marshal-message" role="status">
@@ -743,18 +797,22 @@ export default function Marshal1EntryScreen() {
   return (
     <main className="marshal-page">
       <section className="marshal-shell">
+        <LiveSessionStatus />
         <div className="marshal-top-row">
           <Link className="back-link" to={AppRoute.TRACK_CONTROL}>
             ← Event Control
           </Link>
 
-          <button
-            className="groups-button"
-            type="button"
-            onClick={() => setViewMode("dashboard")}
-          >
-            Groups
-          </button>
+          <div className="marshal-top-actions">
+            <SessionQrButton className="groups-button" />
+            <button
+              className="groups-button"
+              type="button"
+              onClick={() => setViewMode("dashboard")}
+            >
+              Groups
+            </button>
+          </div>
         </div>
 
         <header className="marshal-header">
@@ -774,7 +832,7 @@ export default function Marshal1EntryScreen() {
 
         {currentLocked && (
           <div className="marshal-lock-message">
-            This group is locked and can no longer be edited by Marshal 1.
+            This group is locked and can no longer be edited by Chief Marshal.
           </div>
         )}
 

@@ -30,6 +30,21 @@ export default function HomeScreen() {
           <button type="button" onClick={() => navigate(AppRoute.PRACTICE)}>
             Practice Mode
           </button>
+          <button
+            type="button"
+            onClick={() => navigate(AppRoute.CHIEF_TIMEKEEPER)}
+          >
+            Chief Timekeeper
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate(`${AppRoute.LANE_TIMEKEEPER}?lane=1`)}
+          >
+            Lane Timekeeper
+          </button>
+          <button type="button" onClick={() => navigate(AppRoute.STARTER)}>
+            Starter
+          </button>
         </div>
 
         <footer>Version 1.0</footer>

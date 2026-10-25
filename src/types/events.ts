@@ -10,5 +10,7 @@ export interface TrackEventDraft {
   genders: Gender[];
   genderOrder: GenderOrder;
   ageOrder: AgeOrder;
+  useStarterConfirmation?: boolean;
+  sessionId?: string;
   createdAt: string;
 }
